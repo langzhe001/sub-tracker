@@ -1,0 +1,24 @@
+name = "sub-tracker"
+main = "api/index.ts"
+compatibility_date = "2024-01-01"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+run_worker_first = true
+not_found_handling = "single-page-application"
+
+# 每日 UTC 0:00（北京时间 08:00）执行到期提醒扫描
+[triggers]
+crons = ["0 0 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sub-tracker"
+database_id = "17a9e6da-fd24-4cd6-94f3-afd50c3af20b"
+
+[vars]
+# 部署前请替换为真实值（至少 32 字符）。切勿提交真实密钥到公开仓库。
+JWT_SECRET = "<your-jwt-secret-at-least-32-chars>"
+ENCRYPTION_KEY = "<your-encryption-key-at-least-32-chars>"
+MIGRATION_KEY = "<your-migration-key>"
