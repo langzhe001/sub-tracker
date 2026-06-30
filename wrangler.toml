@@ -8,9 +8,24 @@ binding = "ASSETS"
 run_worker_first = true
 not_found_handling = "single-page-application"
 
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
+
 # 每日 UTC 0:00（北京时间 08:00）执行到期提醒扫描
 [triggers]
-crons = ["0 0 * * *"]
+crons = ["10 10 * * *"]
 
 # 部署后请手动在 Cloudflare Dashboard 配置以下绑定和 Secrets：
 #
