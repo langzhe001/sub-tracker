@@ -15,10 +15,14 @@ crons = ["0 0 * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "sub-tracker"
-database_id = "17a9e6da-fd24-4cd6-94f3-afd50c3af20b"
+# 部署前请将 database_id 替换为你账号下的真实数据库 ID
+# 执行: npx wrangler d1 create sub-tracker
+database_id = "replace-with-your-d1-database-id"
 
-[vars]
-# 部署前请替换为真实值（至少 32 字符）。切勿提交真实密钥到公开仓库。
-JWT_SECRET = "<your-jwt-secret-at-least-32-chars>"
-ENCRYPTION_KEY = "<your-encryption-key-at-least-32-chars>"
-MIGRATION_KEY = "<your-migration-key>"
+# 敏感密钥请勿写在此处（公开仓库不安全），请用 Secret 设置：
+#   npx wrangler secret put JWT_SECRET
+#   npx wrangler secret put ENCRYPTION_KEY
+#   npx wrangler secret put MIGRATION_KEY
+# 或在 Cloudflare Dashboard → Workers → Settings → Variables → Secrets 中添加
+#
+# 密钥要求：JWT_SECRET 和 ENCRYPTION_KEY 至少 32 个字符
