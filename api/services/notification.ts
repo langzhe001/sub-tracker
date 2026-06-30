@@ -165,13 +165,16 @@ export class NotificationService {
       return { success: false, error: 'Missing NotifyX API key' }
     }
 
-    const response = await fetch('https://api.notifx.io/v1/notify', {
+    const response = await fetch(`https://www.notifyx.cn/api/v1/send/${apiKey}`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': apiKey
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ message })
+      body: JSON.stringify({
+        title: '订阅到期提醒',
+        content: message,
+        description: 'SubTracker 订阅管理系统'
+      })
     })
 
     if (!response.ok) {
