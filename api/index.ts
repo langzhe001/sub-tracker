@@ -13,7 +13,7 @@ import { runScheduledJob } from './services/scheduler';
 import type { Env, JwtPayload } from './types';
 
 declare module 'hono' {
-  interface ContextVariable {
+  interface ContextVariables {
     jwtPayload: JwtPayload;
   }
 }
