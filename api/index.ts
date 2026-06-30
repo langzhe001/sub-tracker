@@ -12,13 +12,12 @@ import { MIN_ENCRYPTION_KEY_LENGTH } from './services/crypto';
 import { runScheduledJob } from './services/scheduler';
 import type { Env, JwtPayload } from './types';
 
-declare module 'hono' {
-  interface ContextVariables {
+const app = new Hono<{
+  Bindings: Env;
+  Variables: {
     jwtPayload: JwtPayload;
-  }
-}
-
-const app = new Hono<{ Bindings: Env }>();
+  };
+}>();
 
 app.use('*', async (c, next) => {
   c.header('X-Content-Type-Options', 'nosniff');
