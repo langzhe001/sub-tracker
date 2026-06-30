@@ -1,13 +1,16 @@
 import { drizzle } from 'drizzle-orm/d1'
 import * as schema from '../db/schema'
 import { eq, and } from 'drizzle-orm'
-import type { CreateSubscriptionRequest, UpdateSubscriptionRequest, Stats } from '../types'
+import type { CreateSubscriptionRequest, UpdateSubscriptionRequest, Stats, ExtendMode } from '../types'
 import {
   encrypt,
   decryptField,
   MIN_ENCRYPTION_KEY_LENGTH
 } from './crypto'
-import { getDaysUntilExpire, getExpireStatus } from './date'
+import { getDaysUntilExpire, getExpireStatus, isRecurring, getRecurringMonthDay } from './date'
+import { createNotificationService } from './notification'
+
+const RECURRING_PREFIX = 'R:'
 
 type SubscriptionRow = {
   id: string
@@ -19,10 +22,49 @@ type SubscriptionRow = {
   renewalPeriod: string | null
   expireDate: string
   reminderDays: string | null
+  extendMode: string | null
   groupId: string | null
   userId: string
   createdAt: Date | null
   updatedAt: Date | null
+}
+
+/**
+ * 根据续费周期换算延续天数
+ * - monthly / custom: 30 天
+ * - yearly: 365 天
+ */
+function getExtendDays(renewalPeriod: string | null): number {
+  return renewalPeriod === 'yearly' ? 365 : 30
+}
+
+/**
+ * 将日期对象转为 R:MM-DD 周期模式存储值
+ */
+function dateToRecurringValue(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${RECURRING_PREFIX}${mm}-${dd}`
+}
+
+/**
+ * 将周期模式 R:MM-DD 滚动到距今最近的未来日期
+ * 用于 "以到期日延续" 模式：取下一次到期日作为基准
+ */
+function getRecurringNextDate(expireDate: string): Date {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const md = getRecurringMonthDay(expireDate)
+  const [monthStr, dayStr] = md.split('-')
+  const month = Number(monthStr) - 1
+  const day = Number(dayStr)
+  let target = new Date(today.getFullYear(), month, day)
+  target.setHours(0, 0, 0, 0)
+  if (target.getTime() < today.getTime()) {
+    target = new Date(today.getFullYear() + 1, month, day)
+    target.setHours(0, 0, 0, 0)
+  }
+  return target
 }
 
 type GroupRow = {
@@ -73,6 +115,8 @@ export class SubscriptionService {
     // 解密失败时返回空字符串，避免把加密密文泄漏到前端导致显示异常（如 Infinity 天）
     record.expireDate = (await decryptField(record.expireDate, key)) ?? ''
     record.reminderDays = await decryptField(record.reminderDays, key)
+    // extendMode 可能为 null（旧数据）或明文（默认值），decryptField 会原样返回未加密值
+    record.extendMode = (await decryptField(record.extendMode, key)) ?? 'expire'
   }
 
   /**
@@ -105,6 +149,9 @@ export class SubscriptionService {
     }
     if (result.reminderDays !== undefined && result.reminderDays !== null && result.reminderDays !== '') {
       result.reminderDays = await encrypt(String(result.reminderDays), key)
+    }
+    if (result.extendMode !== undefined && result.extendMode !== null && result.extendMode !== '') {
+      result.extendMode = await encrypt(String(result.extendMode), key)
     }
 
     return result
@@ -146,6 +193,7 @@ export class SubscriptionService {
     const key = this.validateEncryptionKey()
 
     const reminderDaysStr = String(data.reminderDays ?? 7)
+    const extendModeVal = data.extendMode || 'expire'
 
     // 加密所有敏感字段
     const encryptedName = await encrypt(data.name, key)
@@ -158,6 +206,7 @@ export class SubscriptionService {
     const encryptedRenewalPeriod = await encrypt(data.renewalPeriod || 'monthly', key)
     const encryptedExpireDate = await encrypt(data.expireDate, key)
     const encryptedReminderDays = await encrypt(reminderDaysStr, key)
+    const encryptedExtendMode = await encrypt(extendModeVal, key)
 
     await this.db.insert(schema.subscriptions).values({
       id,
@@ -169,6 +218,7 @@ export class SubscriptionService {
       renewalPeriod: encryptedRenewalPeriod,
       expireDate: encryptedExpireDate,
       reminderDays: encryptedReminderDays,
+      extendMode: encryptedExtendMode,
       groupId: data.groupId || null,
       userId
     }).run()
@@ -187,6 +237,7 @@ export class SubscriptionService {
     if (data.renewalPeriod !== undefined) rawUpdates.renewalPeriod = data.renewalPeriod
     if (data.expireDate !== undefined) rawUpdates.expireDate = data.expireDate
     if (data.reminderDays !== undefined) rawUpdates.reminderDays = String(data.reminderDays)
+    if (data.extendMode !== undefined) rawUpdates.extendMode = data.extendMode
     if (data.groupId !== undefined) rawUpdates.groupId = data.groupId
 
     const encryptedUpdates = await this.encryptUpdateFields(rawUpdates)
@@ -199,10 +250,102 @@ export class SubscriptionService {
     return this.getById(id, userId)
   }
 
+  /**
+   * 一键续期：按订阅的 extendMode 与 renewalPeriod 推后到期日期
+   *
+   * 仅周期模式（R:MM-DD）支持。计算规则：
+   * - extendMode='expire'：基准日 = 当前到期日（滚动到未来）+ 延续天数
+   * - extendMode='current'：基准日 = 今天 + 延续天数
+   * 延续天数：yearly=365，monthly/custom=30
+   * 计算后转回 R:MM-DD 存储格式
+   */
+  async extend(id: string, userId: string): Promise<SubscriptionRow | undefined> {
+    const sub = await this.getById(id, userId)
+    if (!sub) return undefined
+
+    if (!isRecurring(sub.expireDate)) {
+      throw new Error('仅周期模式订阅支持续期')
+    }
+
+    const extendMode = (sub.extendMode === 'current' ? 'current' : 'expire') as ExtendMode
+    const days = getExtendDays(sub.renewalPeriod)
+
+    let baseDate: Date
+    if (extendMode === 'current') {
+      baseDate = new Date()
+      baseDate.setHours(0, 0, 0, 0)
+    } else {
+      baseDate = getRecurringNextDate(sub.expireDate)
+    }
+
+    const newDate = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000)
+    const newExpireDate = dateToRecurringValue(newDate)
+
+    return this.update(id, userId, { expireDate: newExpireDate })
+  }
+
   async delete(id: string, userId: string): Promise<void> {
     await this.db.delete(schema.subscriptions)
       .where(and(eq(schema.subscriptions.id, id), eq(schema.subscriptions.userId, userId)))
       .run()
+  }
+
+  /**
+   * 测试推送：使用订阅真实数据向该用户所有启用的通知渠道发送一条测试通知
+   * 返回每个渠道的发送结果
+   */
+  async testPush(id: string, userId: string): Promise<{
+    results: Array<{ channelName: string; channelType: string; success: boolean; error?: string }>
+    total: number
+    success: number
+    failed: number
+  }> {
+    const sub = await this.getById(id, userId)
+    if (!sub) {
+      return { results: [], total: 0, success: 0, failed: 0 }
+    }
+
+    // 取该用户所有启用的渠道
+    const channels = (await this.db.select().from(schema.notificationChannels)
+      .where(and(
+        eq(schema.notificationChannels.userId, userId),
+        eq(schema.notificationChannels.enabled, 1)
+      ))
+      .all()) as unknown as ChannelRow[]
+
+    // 解密渠道 name（用于结果展示）
+    const key = this.validateEncryptionKey()
+    for (const ch of channels) {
+      ch.name = (await decryptField(ch.name, key)) ?? ch.name
+    }
+
+    const notificationService = createNotificationService(this.db, this.encryptionKey)
+    const daysLeft = getDaysUntilExpire(sub.expireDate)
+
+    const results: Array<{ channelName: string; channelType: string; success: boolean; error?: string }> = []
+    let success = 0
+    let failed = 0
+
+    for (const ch of channels) {
+      const channelForSend = {
+        ...ch,
+        config: ch.config
+      }
+      const result = await notificationService.sendNotification(channelForSend, sub, daysLeft)
+      if (result.success) {
+        success++
+      } else {
+        failed++
+      }
+      results.push({
+        channelName: ch.name,
+        channelType: ch.type,
+        success: result.success,
+        error: result.error
+      })
+    }
+
+    return { results, total: channels.length, success, failed }
   }
 
   /**

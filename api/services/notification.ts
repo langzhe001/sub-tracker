@@ -9,6 +9,7 @@ import {
   isEncrypted,
   MIN_ENCRYPTION_KEY_LENGTH
 } from './crypto'
+import { isRecurring, getRecurringMonthDay } from './date'
 
 export class NotificationService {
   constructor(
@@ -79,15 +80,93 @@ export class NotificationService {
     }
   }
 
+  /**
+   * 格式化到期日期为中文显示
+   * - 周期模式 R:MM-DD → "每年 X月Y日"
+   * - 非周期模式 YYYY-MM-DD → "YYYY年X月Y日"
+   */
+  private formatExpireDate(expireDate: string): string {
+    if (!expireDate) return '未设置'
+    if (isRecurring(expireDate)) {
+      const md = getRecurringMonthDay(expireDate)
+      const [m, d] = md.split('-')
+      return `每年 ${Number(m)}月${Number(d)}日`
+    }
+    const date = new Date(expireDate)
+    if (isNaN(date.getTime())) return expireDate
+    return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
+  }
+
+  /**
+   * 货币代码转符号
+   */
+  private currencySymbol(currency: string): string {
+    switch ((currency || '').toUpperCase()) {
+      case 'USD': return '$'
+      case 'EUR': return '€'
+      case 'CNY': return '¥'
+      default: return currency || ''
+    }
+  }
+
+  /**
+   * 续费周期转中文
+   */
+  private periodLabel(period: string): string {
+    switch (period) {
+      case 'monthly': return '月'
+      case 'yearly': return '年'
+      case 'custom': return '周期'
+      default: return period || ''
+    }
+  }
+
+  /**
+   * 构造推送消息，包含订阅填写的全部内容
+   * 仅展示有值的字段，保持排版美观
+   */
   private buildMessage(subscription: any, daysLeft: number): string {
-    const status = daysLeft <= 0 ? '已过期' : `还有 ${daysLeft} 天到期`
-    return `📅 订阅到期提醒
+    const status = daysLeft < 0
+      ? '已过期'
+      : daysLeft === 0
+        ? '今天到期'
+        : `还有 ${daysLeft} 天到期`
 
-订阅名称：${subscription.name}
-到期日期：${subscription.expireDate}
-状态：${status}
+    const lines: string[] = ['📅 订阅到期提醒', '']
 
-💡 请及时续费以避免服务中断`
+    if (subscription.name) {
+      lines.push(`📌 名称：${subscription.name}`)
+    }
+    if (subscription.description) {
+      lines.push(`📝 描述：${subscription.description}`)
+    }
+    // 费用（金额 + 货币 + 周期）
+    if (subscription.amount !== undefined && subscription.amount !== null && subscription.amount !== '') {
+      const amount = Number(subscription.amount)
+      const symbol = this.currencySymbol(subscription.currency)
+      const period = this.periodLabel(subscription.renewalPeriod)
+      if (!isNaN(amount) && period) {
+        lines.push(`💰 费用：${symbol}${amount.toFixed(2)} / ${period}`)
+      } else if (!isNaN(amount)) {
+        lines.push(`💰 费用：${symbol}${amount.toFixed(2)}`)
+      }
+    }
+    // 到期日期
+    if (subscription.expireDate) {
+      lines.push(`📅 到期：${this.formatExpireDate(subscription.expireDate)}`)
+    }
+    // 状态
+    lines.push(`⏰ 状态：${status}`)
+    // 提醒设置
+    if (subscription.reminderDays !== undefined && subscription.reminderDays !== null && subscription.reminderDays !== '') {
+      const days = Number(subscription.reminderDays)
+      if (!isNaN(days) && days > 0) {
+        lines.push(`🔔 提前提醒：${days} 天`)
+      }
+    }
+
+    lines.push('', '💡 请及时续费以避免服务中断')
+    return lines.join('\n')
   }
 
   private async sendEmail(config: Record<string, string>, subscription: any, message: string): Promise<{ success: boolean; error?: string }> {

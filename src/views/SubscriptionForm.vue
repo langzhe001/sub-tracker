@@ -28,6 +28,11 @@ const expireDateOnce = ref('')
 // 周期模式：用 date input 显示（固定用当前年），提交时只取 MM-DD
 const expireDateRecurring = ref('')
 
+// 延续设置：仅周期模式可见
+// expire = 以设置到期时间延续周期天数 / current = 以当前时间延续周期天数
+type ExtendMode = 'expire' | 'current'
+const extendMode = ref<ExtendMode>('expire')
+
 const form = ref({
   name: '',
   description: '',
@@ -69,6 +74,9 @@ onMounted(async () => {
         expireMode.value = 'once'
         expireDateOnce.value = sub.expireDate
       }
+
+      // 还原延续模式（仅周期模式有意义，默认 expire）
+      extendMode.value = sub.extendMode === 'current' ? 'current' : 'expire'
 
       // 还原提醒设置：预设值直接选中，非预设值切换到自定义模式
       if (!reminderOptions.some(o => o.value === sub.reminderDays)) {
@@ -154,6 +162,8 @@ async function handleSubmit() {
     const data = {
       ...form.value,
       expireDate,
+      // 非周期模式不传 extendMode（后端会保留默认值）
+      extendMode: expireMode.value === 'recurring' ? extendMode.value : undefined,
       groupId: form.value.groupId || undefined
     }
 
@@ -315,6 +325,32 @@ async function handleSubmit() {
                   <option value="yearly">每年</option>
                   <option value="custom">自定义</option>
                 </select>
+              </div>
+
+              <!-- 延续设置（仅周期模式显示） -->
+              <div class="space-y-2">
+                <Label>延续设置</Label>
+                <div class="grid grid-cols-2 gap-2 p-1 rounded-lg bg-muted">
+                  <button
+                    type="button"
+                    class="px-3 py-2 rounded-md text-sm font-medium transition-colors text-center"
+                    :class="extendMode === 'expire' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'"
+                    @click="extendMode = 'expire'"
+                  >
+                    以到期日延续
+                  </button>
+                  <button
+                    type="button"
+                    class="px-3 py-2 rounded-md text-sm font-medium transition-colors text-center"
+                    :class="extendMode === 'current' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'"
+                    @click="extendMode = 'current'"
+                  >
+                    以当前日期延续
+                  </button>
+                </div>
+                <p class="text-xs text-muted-foreground">
+                  一键续期时的计算基准：以到期日延续=从当前到期日推后一个周期；以当前日期延续=从今天推后一个周期。
+                </p>
               </div>
             </div>
 

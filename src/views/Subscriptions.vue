@@ -2,7 +2,8 @@
 import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSubscriptionStore, useGroupStore } from '@/stores'
-import { Plus, Search, Filter, Edit2, Trash2, Calendar } from 'lucide-vue-next'
+import { api } from '@/api/client'
+import { Plus, Search, Filter, Edit2, Trash2, Calendar, Send, RefreshCw, Check, X } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -21,7 +22,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
-import { getDaysUntilExpire, getExpireStatus, formatExpireDate, expireLabel } from '@/lib/date'
+import { getDaysUntilExpire, getExpireStatus, formatExpireDate, expireLabel, isRecurring } from '@/lib/date'
 
 const router = useRouter()
 const subscriptionStore = useSubscriptionStore()
@@ -31,6 +32,14 @@ const searchQuery = ref('')
 const selectedGroupId = ref<string | null>(null)
 const showDeleteConfirm = ref(false)
 const deletingId = ref<string | null>(null)
+
+// 测试推送状态
+const testingId = ref<string | null>(null)
+const testResult = ref<{ id: string; success: number; failed: number; total: number; error?: string } | null>(null)
+
+// 一键续期状态
+const extendingId = ref<string | null>(null)
+const extendResult = ref<{ id: string; success: boolean; error?: string } | null>(null)
 
 onMounted(async () => {
   await Promise.all([
@@ -73,6 +82,62 @@ async function handleDelete() {
     await subscriptionStore.deleteSubscription(deletingId.value)
     showDeleteConfirm.value = false
     deletingId.value = null
+  }
+}
+
+/**
+ * 测试推送：使用订阅真实数据向所有启用的通知渠道发送测试通知
+ */
+async function testPush(id: string) {
+  testingId.value = id
+  testResult.value = null
+  try {
+    const res = await api.testSubscription(id)
+    if (res.success && res.data) {
+      testResult.value = {
+        id,
+        success: res.data.success,
+        failed: res.data.failed,
+        total: res.data.total
+      }
+    } else {
+      testResult.value = {
+        id,
+        success: 0,
+        failed: 0,
+        total: 0,
+        error: res.error || '测试失败'
+      }
+    }
+  } finally {
+    testingId.value = null
+    // 5 秒后自动清除提示
+    setTimeout(() => {
+      if (testResult.value?.id === id) testResult.value = null
+    }, 5000)
+  }
+}
+
+/**
+ * 一键续期：按订阅的 extendMode 与 renewalPeriod 推后到期日期
+ */
+async function extendSubscription(id: string) {
+  extendingId.value = id
+  extendResult.value = null
+  try {
+    const res = await api.extendSubscription(id)
+    if (res.success) {
+      extendResult.value = { id, success: true }
+      // 刷新列表数据
+      await subscriptionStore.fetchSubscriptions()
+    } else {
+      extendResult.value = { id, success: false, error: res.error || '续期失败' }
+    }
+  } finally {
+    extendingId.value = null
+    setTimeout(() => {
+      if (extendResult.value?.id === id) extendResult.value = null
+    }, 5000)
   }
 }
 </script>
@@ -189,6 +254,66 @@ async function handleDelete() {
             {{ expireLabel(sub.expireDate) }}
           </Badge>
         </CardFooter>
+
+        <!-- 卡片操作区：测试推送 + 一键续期（仅周期模式） -->
+        <div class="px-3 md:px-6 pb-3 pt-2 space-y-2">
+          <div class="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              class="flex-1 h-8"
+              :disabled="testingId === sub.id"
+              @click.stop="testPush(sub.id)"
+            >
+              <Send v-if="testingId !== sub.id" class="w-3.5 h-3.5" />
+              <RefreshCw v-else class="w-3.5 h-3.5 animate-spin" />
+              {{ testingId === sub.id ? '推送中...' : '测试推送' }}
+            </Button>
+            <Button
+              v-if="isRecurring(sub.expireDate)"
+              variant="outline"
+              size="sm"
+              class="flex-1 h-8"
+              :disabled="extendingId === sub.id"
+              @click.stop="extendSubscription(sub.id)"
+            >
+              <RefreshCw v-if="extendingId === sub.id" class="w-3.5 h-3.5 animate-spin" />
+              <Calendar v-else class="w-3.5 h-3.5" />
+              {{ extendingId === sub.id ? '续期中...' : '一键续期' }}
+            </Button>
+          </div>
+
+          <!-- 测试推送结果 -->
+          <div
+            v-if="testResult?.id === sub.id"
+            class="p-2 rounded-md text-xs flex items-center gap-2"
+            :class="testResult.error || testResult.failed > 0
+              ? 'bg-destructive/10 text-destructive'
+              : 'bg-success/10 text-success'"
+          >
+            <X v-if="testResult.error || (testResult.total > 0 && testResult.success === 0)" class="w-3.5 h-3.5 shrink-0" />
+            <Check v-else class="w-3.5 h-3.5 shrink-0" />
+            <span class="truncate">
+              <template v-if="testResult.error">{{ testResult.error }}</template>
+              <template v-else>
+                成功 {{ testResult.success }}/{{ testResult.total }}<template v-if="testResult.failed > 0">，失败 {{ testResult.failed }}</template>
+              </template>
+            </span>
+          </div>
+
+          <!-- 一键续期结果 -->
+          <div
+            v-if="extendResult?.id === sub.id"
+            class="p-2 rounded-md text-xs flex items-center gap-2"
+            :class="extendResult.success ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'"
+          >
+            <Check v-if="extendResult.success" class="w-3.5 h-3.5 shrink-0" />
+            <X v-else class="w-3.5 h-3.5 shrink-0" />
+            <span class="truncate">
+              {{ extendResult.success ? '续期成功，到期日已推后一个周期' : (extendResult.error || '续期失败') }}
+            </span>
+          </div>
+        </div>
       </Card>
     </div>
 

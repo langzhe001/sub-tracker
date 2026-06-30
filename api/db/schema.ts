@@ -20,8 +20,9 @@ export const groups = sqliteTable('groups', {
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
 })
 
-// 敏感字段（name/description/icon/amount/currency/renewalPeriod/expireDate/reminderDays）
+// 敏感字段（name/description/icon/amount/currency/renewalPeriod/expireDate/reminderDays/extendMode）
 // 全部以 AES-GCM 密文存储；expireDate 范围查询改为应用层过滤（先按 userId 取全部，再解密过滤）
+// extendMode 仅周期模式使用：expire=以到期日延续 / current=以当前日期延续
 export const subscriptions = sqliteTable('subscriptions', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -32,6 +33,7 @@ export const subscriptions = sqliteTable('subscriptions', {
   renewalPeriod: text('renewal_period').default('monthly'),
   expireDate: text('expire_date').notNull(),
   reminderDays: text('reminder_days').default('7'),
+  extendMode: text('extend_mode').default('expire'),
   groupId: text('group_id').references(() => groups.id, { onDelete: 'set null' }),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),

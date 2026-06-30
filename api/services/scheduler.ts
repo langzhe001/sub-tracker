@@ -164,7 +164,8 @@ export class SchedulerService {
           amount: await this.safeDecrypt(sub.amount),
           currency: await this.safeDecrypt(sub.currency),
           renewalPeriod: await this.safeDecrypt(sub.renewalPeriod),
-          expireDate
+          expireDate,
+          reminderDays: reminderDaysStr
         };
 
         // 取该用户启用的渠道

@@ -20,6 +20,7 @@ interface Subscription {
   renewalPeriod?: 'monthly' | 'yearly' | 'custom'
   expireDate: string
   reminderDays: number
+  extendMode?: 'expire' | 'current'
   groupId?: string
   userId: string
   createdAt?: string
@@ -66,6 +67,20 @@ interface NotificationLog {
   success: boolean
   errorMessage?: string
   sentAt: string
+}
+
+interface SubscriptionTestResultItem {
+  channelName: string
+  channelType: string
+  success: boolean
+  error?: string
+}
+
+interface SubscriptionTestResult {
+  results: SubscriptionTestResultItem[]
+  total: number
+  success: number
+  failed: number
 }
 
 const API_BASE = '/api'
@@ -175,6 +190,24 @@ class ApiClient {
     })
   }
 
+  /**
+   * 一键续期：按订阅的 extendMode 与 renewalPeriod 推后到期日期
+   */
+  async extendSubscription(id: string) {
+    return this.request<Subscription>(`/subscriptions/${id}/extend`, {
+      method: 'POST'
+    })
+  }
+
+  /**
+   * 测试推送：使用订阅真实数据向所有启用的通知渠道发送测试通知
+   */
+  async testSubscription(id: string): Promise<ApiResponse<SubscriptionTestResult>> {
+    return this.request<SubscriptionTestResult>(`/subscriptions/${id}/test`, {
+      method: 'POST'
+    })
+  }
+
   async getStats() {
     return this.request<Stats>('/subscriptions/stats')
   }
@@ -252,5 +285,6 @@ export type {
   NotificationChannel,
   Stats,
   NotificationLog,
+  SubscriptionTestResult,
   ChannelType
 }

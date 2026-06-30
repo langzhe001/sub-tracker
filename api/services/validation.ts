@@ -119,6 +119,25 @@ function validateRenewalPeriod(period: unknown): { valid: boolean; value: string
   return { valid: true, value: period };
 }
 
+/**
+ * 验证延续模式
+ * - expire: 以当前到期日期为基准延续
+ * - current: 以当前日期为基准延续
+ */
+function validateExtendMode(mode: unknown): { valid: boolean; value: string; error?: string } {
+  if (mode === undefined || mode === null || mode === '') {
+    return { valid: true, value: 'expire' };
+  }
+  if (typeof mode !== 'string') {
+    return { valid: false, value: 'expire', error: 'Invalid extend mode' };
+  }
+  const validModes = ['expire', 'current'];
+  if (!validModes.includes(mode)) {
+    return { valid: false, value: 'expire', error: 'Invalid extend mode' };
+  }
+  return { valid: true, value: mode };
+}
+
 function validateConfig(config: unknown, type: string): { valid: boolean; value: Record<string, string>; error?: string } {
   const result: Record<string, string> = {};
   if (!config || typeof config !== 'object') {
@@ -181,6 +200,7 @@ export {
   validateReminderDay,
   validateChannelType,
   validateRenewalPeriod,
+  validateExtendMode,
   validateConfig,
   MAX_TEXT_LENGTH,
   MAX_LONG_TEXT_LENGTH,

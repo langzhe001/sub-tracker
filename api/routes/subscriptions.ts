@@ -9,7 +9,8 @@ import {
   sanitizeLongString,
   validateNumber,
   validateReminderDay,
-  validateRenewalPeriod
+  validateRenewalPeriod,
+  validateExtendMode
 } from '../services/validation';
 import { MIN_ENCRYPTION_KEY_LENGTH } from '../services/crypto';
 import type { Env } from '../types';
@@ -144,6 +145,11 @@ subscriptions.post('/', async (c) => {
     return c.json<ApiResponse>({ success: false, error: periodCheck.error }, 400);
   }
 
+  const extendModeCheck = validateExtendMode(body.extendMode);
+  if (!extendModeCheck.valid) {
+    return c.json<ApiResponse>({ success: false, error: extendModeCheck.error }, 400);
+  }
+
   const description = sanitizeLongString(body.description);
   const icon = sanitizeString(body.icon, 16);
   const amountCheck = validateNumber(body.amount, 0, 1_000_000);
@@ -176,6 +182,7 @@ subscriptions.post('/', async (c) => {
     renewalPeriod: periodCheck.value as 'monthly' | 'yearly' | 'custom',
     expireDate: body.expireDate,
     reminderDays: reminderCheck.value,
+    extendMode: extendModeCheck.value as 'expire' | 'current',
     groupId
   });
 
@@ -265,6 +272,14 @@ subscriptions.put('/:id', async (c) => {
     updateData.reminderDays = reminderCheck.value;
   }
 
+  if (body.extendMode !== undefined) {
+    const extendModeCheck = validateExtendMode(body.extendMode);
+    if (!extendModeCheck.valid) {
+      return c.json<ApiResponse>({ success: false, error: extendModeCheck.error }, 400);
+    }
+    updateData.extendMode = extendModeCheck.value;
+  }
+
   if (body.groupId !== undefined) {
     if (body.groupId === null) {
       updateData.groupId = null;
@@ -314,6 +329,69 @@ subscriptions.delete('/:id', async (c) => {
 
   await service.delete(id, payload.userId);
   return c.json<ApiResponse>({ success: true });
+});
+
+/**
+ * 一键续期：按订阅的 extendMode 与 renewalPeriod 推后到期日期
+ * POST /api/subscriptions/:id/extend
+ */
+subscriptions.post('/:id/extend', async (c) => {
+  const payload = getPayload(c);
+  if (!payload) return;
+
+  const id = c.req.param('id');
+  const idCheck = validateUUID(id);
+  if (!idCheck.valid) {
+    return c.json<ApiResponse>({ success: false, error: idCheck.error }, 400);
+  }
+
+  const db = drizzle(c.env.DB!, { schema });
+  const service = createSubscriptionService(db, c.env.ENCRYPTION_KEY);
+
+  try {
+    const subscription = await service.extend(id, payload.userId);
+    if (!subscription) {
+      return c.json<ApiResponse>({ success: false, error: 'Subscription not found' }, 404);
+    }
+    return c.json<ApiResponse>({
+      success: true,
+      data: {
+        ...subscription,
+        amount: subscription.amount !== null && subscription.amount !== undefined ? Number(subscription.amount) : null,
+        reminderDays: Number((subscription as any).reminderDays) || 7
+      }
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json<ApiResponse>({ success: false, error: msg }, 400);
+  }
+});
+
+/**
+ * 测试推送：使用订阅真实数据向该用户所有启用的通知渠道发送测试通知
+ * POST /api/subscriptions/:id/test
+ */
+subscriptions.post('/:id/test', async (c) => {
+  const payload = getPayload(c);
+  if (!payload) return;
+
+  const id = c.req.param('id');
+  const idCheck = validateUUID(id);
+  if (!idCheck.valid) {
+    return c.json<ApiResponse>({ success: false, error: idCheck.error }, 400);
+  }
+
+  const db = drizzle(c.env.DB!, { schema });
+  const service = createSubscriptionService(db, c.env.ENCRYPTION_KEY);
+
+  const result = await service.testPush(id, payload.userId);
+  if (result.total === 0) {
+    return c.json<ApiResponse>({
+      success: false,
+      error: '未找到该订阅或未配置启用的通知渠道'
+    }, 404);
+  }
+  return c.json<ApiResponse>({ success: true, data: result });
 });
 
 export default subscriptions;

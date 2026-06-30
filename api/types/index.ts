@@ -29,6 +29,8 @@ export interface LoginRequest {
   password: string
 }
 
+export type ExtendMode = 'expire' | 'current'
+
 export interface CreateSubscriptionRequest {
   name: string
   description?: string
@@ -38,6 +40,7 @@ export interface CreateSubscriptionRequest {
   renewalPeriod?: 'monthly' | 'yearly' | 'custom'
   expireDate: string
   reminderDays?: number
+  extendMode?: ExtendMode
   groupId?: string
 }
 
