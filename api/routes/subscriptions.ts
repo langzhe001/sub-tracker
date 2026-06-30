@@ -54,7 +54,7 @@ subscriptions.get('/', async (c) => {
     }
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createSubscriptionService(db, c.env.ENCRYPTION_KEY);
 
   let data: any[];
@@ -78,7 +78,7 @@ subscriptions.get('/stats', async (c) => {
   const payload = getPayload(c);
   if (!payload) return;
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createSubscriptionService(db, c.env.ENCRYPTION_KEY);
 
   const stats = await service.getStats(payload.userId);
@@ -95,7 +95,7 @@ subscriptions.get('/:id', async (c) => {
     return c.json<ApiResponse>({ success: false, error: idCheck.error }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createSubscriptionService(db, c.env.ENCRYPTION_KEY);
 
   const subscription = await service.getById(id, payload.userId);
@@ -164,7 +164,7 @@ subscriptions.post('/', async (c) => {
     }
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createSubscriptionService(db, c.env.ENCRYPTION_KEY);
 
   const subscription = await service.create(payload.userId, {
@@ -281,7 +281,7 @@ subscriptions.put('/:id', async (c) => {
     return c.json<ApiResponse>({ success: false, error: 'No valid fields provided' }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createSubscriptionService(db, c.env.ENCRYPTION_KEY);
 
   const subscription = await service.update(id, payload.userId, updateData);
@@ -309,7 +309,7 @@ subscriptions.delete('/:id', async (c) => {
     return c.json<ApiResponse>({ success: false, error: idCheck.error }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createSubscriptionService(db, c.env.ENCRYPTION_KEY);
 
   await service.delete(id, payload.userId);

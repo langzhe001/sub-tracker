@@ -32,3 +32,6 @@ database_backup.sql
 
 # 临时测试脚本
 .tmp_*.mjs
+
+# Wrangler 自动生成的类型文件
+worker-configuration.d.ts

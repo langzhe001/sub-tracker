@@ -12,17 +12,19 @@ not_found_handling = "single-page-application"
 [triggers]
 crons = ["0 0 * * *"]
 
-[[d1_databases]]
-binding = "DB"
-database_name = "sub-tracker"
-# 部署前请将 database_id 替换为你账号下的真实数据库 ID
-# 执行: npx wrangler d1 create sub-tracker
-database_id = "replace-with-your-d1-database-id"
-
-# 敏感密钥请勿写在此处（公开仓库不安全），请用 Secret 设置：
-#   npx wrangler secret put JWT_SECRET
-#   npx wrangler secret put ENCRYPTION_KEY
-#   npx wrangler secret put MIGRATION_KEY
-# 或在 Cloudflare Dashboard → Workers → Settings → Variables → Secrets 中添加
+# 部署后请手动在 Cloudflare Dashboard 配置以下绑定和 Secrets：
 #
-# 密钥要求：JWT_SECRET 和 ENCRYPTION_KEY 至少 32 个字符
+# 1. D1 Database 绑定（Settings → Bindings）
+#    先在 D1 控制台创建数据库：npx wrangler d1 create sub-tracker
+#    然后在 Workers Settings 中添加绑定：
+#    Variable name: DB  →  Database: sub-tracker
+#
+# 2. Secrets（Settings → Variables and Secrets，类型选 "Encrypt"）
+#    JWT_SECRET      至少 32 字符（用于 JWT 签名）
+#    ENCRYPTION_KEY  至少 32 字符（用于 AES-GCM 字段加密）
+#    MIGRATION_KEY   任意字符串（用于调用 /api/migrate 接口）
+#
+# 3. 数据库迁移（配置完成后执行）
+#    npx wrangler d1 execute sub-tracker --remote --file=./migrations/001_initial.sql
+#    npx wrangler d1 execute sub-tracker --remote --file=./migrations/002_encrypt_configs.sql
+#    npx wrangler d1 execute sub-tracker --remote --file=./migrations/003_encrypt_all_fields.sql

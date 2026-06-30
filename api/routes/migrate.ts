@@ -67,7 +67,7 @@ migrate.post('/encrypt-channels', async (c) => {
     return authResult;
   }
   const key = authResult;
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
 
   const channels = (await db.select().from(schema.notificationChannels).all() as unknown) as Array<{
     id: string;
@@ -138,7 +138,7 @@ migrate.post('/encrypt-all-fields', async (c) => {
     return authResult;
   }
   const key = authResult;
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
 
   const stats = {
     users: { total: 0, encrypted: 0, skipped: 0, errors: 0 },

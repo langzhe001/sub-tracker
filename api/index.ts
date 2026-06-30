@@ -60,21 +60,44 @@ app.use('*', cors({
   credentials: false
 }));
 
-app.use('/api/*', async (c: any, next) => {
+/**
+ * 统一检查服务端必要配置（D1 绑定 + Secrets）
+ * 若缺失则返回 503，提示用户到 Dashboard 补充
+ */
+function checkServerConfig(env: Env): { ok: boolean; missing: string[] } {
+  const missing: string[] = [];
+
+  if (!env.DB) {
+    missing.push('D1 Database binding (DB)');
+  }
+  if (!env.JWT_SECRET || env.JWT_SECRET.length < MIN_SECRET_LENGTH) {
+    missing.push('Secret: JWT_SECRET（至少 32 字符）');
+  }
+  if (!env.ENCRYPTION_KEY || env.ENCRYPTION_KEY.length < MIN_ENCRYPTION_KEY_LENGTH) {
+    missing.push('Secret: ENCRYPTION_KEY（至少 32 字符）');
+  }
+
+  return { ok: missing.length === 0, missing };
+}
+
+app.use('/api/*', async (c, next) => {
   const path = c.req.path;
   const publicPaths = ['/api/auth/login', '/api/auth/register'];
   const migrationPaths = ['/api/migrate/encrypt-channels', '/api/migrate/encrypt-all-fields'];
+
+  // 部署后未配置完成时，即使是公开接口也返回提示，避免用户误以为功能可用
+  const configCheck = checkServerConfig(c.env);
+  if (!configCheck.ok) {
+    return c.json({
+      success: false,
+      error: '服务器配置未完成。请在 Cloudflare Dashboard → Workers → Settings → Variables and Secrets 中完成以下配置：',
+      missing: configCheck.missing
+    }, 503);
+  }
+
   if (publicPaths.includes(path) || migrationPaths.includes(path)) {
     await next();
     return;
-  }
-
-  if (!c.env.JWT_SECRET || c.env.JWT_SECRET.length < MIN_SECRET_LENGTH) {
-    return c.json({ success: false, error: 'Server configuration error' }, 500);
-  }
-
-  if (!c.env.ENCRYPTION_KEY || c.env.ENCRYPTION_KEY.length < MIN_ENCRYPTION_KEY_LENGTH) {
-    return c.json({ success: false, error: 'Server encryption configuration error' }, 500);
   }
 
   const authHeader = c.req.header('Authorization');
@@ -88,7 +111,7 @@ app.use('/api/*', async (c: any, next) => {
   }
 
   try {
-    const payload = await verifyToken(token, c.env.JWT_SECRET);
+    const payload = await verifyToken(token, c.env.JWT_SECRET!);
     if (!payload || !payload.userId || !payload.email) {
       return c.json({ success: false, error: 'Invalid or expired token' }, 401);
     }
@@ -113,6 +136,9 @@ app.all('*', (c) => {
   if (c.req.path.startsWith('/api/')) {
     return c.json({ success: false, error: 'Not found' }, 404);
   }
+  if (!c.env.ASSETS) {
+    return c.json({ success: false, error: 'Static assets not configured' }, 503);
+  }
   return c.env.ASSETS.fetch(c.req.raw);
 });
 
@@ -125,6 +151,11 @@ export default {
   fetch: app.fetch,
   // Cloudflare Workers Cron Triggers 触发入口
   scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    const configCheck = checkServerConfig(env);
+    if (!configCheck.ok) {
+      console.warn('Cron skipped: server config incomplete', configCheck.missing);
+      return;
+    }
     ctx.waitUntil(runScheduledJob(env).catch((err) => {
       console.error('scheduler job failed:', err instanceof Error ? err.message : String(err));
     }));

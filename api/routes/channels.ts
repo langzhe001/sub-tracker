@@ -54,7 +54,7 @@ channels.get('/', async (c) => {
   const encryptionKey = validateEncryptionKey(c.env);
   if (!encryptionKey) return;
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createChannelService(db, encryptionKey);
 
   const data = (await service.getAll(payload.userId)) as unknown as any[];
@@ -84,7 +84,7 @@ channels.get('/:id', async (c) => {
     return c.json<ApiResponse>({ success: false, error: idCheck.error }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createChannelService(db, encryptionKey);
 
   const channel = await service.getById(id, payload.userId);
@@ -139,7 +139,7 @@ channels.post('/', async (c) => {
     return c.json<ApiResponse>({ success: false, error: configCheck.error }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createChannelService(db, encryptionKey);
 
   const channel = await service.create(payload.userId, {
@@ -217,7 +217,7 @@ channels.put('/:id', async (c) => {
     return c.json<ApiResponse>({ success: false, error: 'No valid fields provided' }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createChannelService(db, encryptionKey);
 
   const channel = await service.update(id, payload.userId, updateData);
@@ -251,7 +251,7 @@ channels.delete('/:id', async (c) => {
     return c.json<ApiResponse>({ success: false, error: idCheck.error }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createChannelService(db, encryptionKey);
 
   await service.delete(id, payload.userId);
@@ -271,7 +271,7 @@ channels.post('/:id/test', async (c) => {
     return c.json<ApiResponse>({ success: false, error: idCheck.error }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createChannelService(db, encryptionKey);
 
   const result = await service.testChannel(id, payload.userId);

@@ -38,7 +38,7 @@ groups.get('/', async (c) => {
   const payload = getPayload(c);
   if (!payload) return;
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createGroupService(db, c.env.ENCRYPTION_KEY);
 
   const data = await service.getAll(payload.userId);
@@ -55,7 +55,7 @@ groups.get('/:id', async (c) => {
     return c.json<ApiResponse>({ success: false, error: idCheck.error }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createGroupService(db, c.env.ENCRYPTION_KEY);
 
   const group = await service.getById(id, payload.userId);
@@ -84,7 +84,7 @@ groups.post('/', async (c) => {
   const color = sanitizeString(body.color, 20);
   const icon = sanitizeString(body.icon, 16);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createGroupService(db, c.env.ENCRYPTION_KEY);
 
   const group = await service.create(payload.userId, { name, color, icon });
@@ -127,7 +127,7 @@ groups.put('/:id', async (c) => {
     return c.json<ApiResponse>({ success: false, error: 'No valid fields provided' }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createGroupService(db, c.env.ENCRYPTION_KEY);
 
   const group = await service.update(id, payload.userId, updateData);
@@ -148,7 +148,7 @@ groups.delete('/:id', async (c) => {
     return c.json<ApiResponse>({ success: false, error: idCheck.error }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createGroupService(db, c.env.ENCRYPTION_KEY);
 
   await service.delete(id, payload.userId);

@@ -42,7 +42,7 @@ notifications.get('/', async (c) => {
   const limitCheck = validateNumber(limitStr, 1, 200);
   const limit = limitCheck.value ? Math.floor(limitCheck.value as number) : 50;
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const service = createNotificationService(db, c.env.ENCRYPTION_KEY);
 
   const logs = await service.getLogs(payload.userId, limit);

@@ -1,8 +1,8 @@
 export interface Env {
-  DB: D1Database
-  ASSETS: Fetcher
-  JWT_SECRET: string
-  ENCRYPTION_KEY: string
+  DB?: D1Database
+  ASSETS?: Fetcher
+  JWT_SECRET?: string
+  ENCRYPTION_KEY?: string
   MIGRATION_KEY?: string
 }
 

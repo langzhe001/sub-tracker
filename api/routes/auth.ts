@@ -49,7 +49,7 @@ auth.post('/register', async (c) => {
     return c.json<ApiResponse>({ success: false, error: 'Server encryption configuration error' }, 500);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const authService = createAuthService(db, c.env.ENCRYPTION_KEY);
 
   let result;
@@ -88,7 +88,7 @@ auth.post('/login', async (c) => {
     return c.json<ApiResponse>({ success: false, error: 'Server encryption configuration error' }, 500);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const authService = createAuthService(db, c.env.ENCRYPTION_KEY);
 
   const result = await authService.login(body, c.env);
@@ -108,7 +108,7 @@ auth.get('/me', async (c) => {
     return c.json<ApiResponse>({ success: false, error: 'Unauthorized' }, 401);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = drizzle(c.env.DB!, { schema });
   const users = (await db
     .select()
     .from(schema.users)

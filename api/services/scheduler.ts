@@ -231,7 +231,7 @@ export async function runScheduledJob(env: Env): Promise<void> {
     console.error('scheduler: encryption key not configured, abort');
     return;
   }
-  const db = drizzle(env.DB, { schema });
+  const db = drizzle(env.DB!, { schema });
   const service = createSchedulerService(db, env.ENCRYPTION_KEY);
   const stats = await service.run();
   console.log('scheduler done:', JSON.stringify(stats));
