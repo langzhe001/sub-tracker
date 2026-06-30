@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useChannelStore } from '@/stores'
 import { Plus, Edit2, Trash2, Mail, Send, Check, X, Bell } from 'lucide-vue-next'
 import type { NotificationChannel, ChannelType } from '@/api/client'
+import { api } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -27,6 +28,8 @@ const editingChannel = ref<NotificationChannel | null>(null)
 const deletingId = ref<string | null>(null)
 const testingId = ref<string | null>(null)
 const testResult = ref<{ id: string; success: boolean; error?: string } | null>(null)
+const submitting = ref(false)
+const loadingConfig = ref(false)
 
 const form = ref({
   type: 'email' as ChannelType,
@@ -102,35 +105,53 @@ function openCreateForm() {
   showForm.value = true
 }
 
-function openEditForm(channel: NotificationChannel) {
+async function openEditForm(channel: NotificationChannel) {
   editingChannel.value = channel
   form.value = {
     type: channel.type,
     name: channel.name,
-    config: { ...channel.config },
+    config: {},
     enabled: channel.enabled
   }
   showForm.value = true
+  loadingConfig.value = true
+
+  // 列表接口不返回 config，需调用详情接口获取解密后的完整配置
+  try {
+    const res = await api.getChannel(channel.id)
+    if (res.success && res.data?.config) {
+      form.value.config = { ...res.data.config }
+    }
+  } catch {
+    // 获取失败时保留空配置，用户可重新填写
+  } finally {
+    loadingConfig.value = false
+  }
 }
 
 async function handleSubmit() {
-  if (!form.value.name.trim()) return
+  if (!form.value.name.trim() || submitting.value) return
 
-  const data = {
-    type: form.value.type,
-    name: form.value.name,
-    config: form.value.config,
-    enabled: form.value.enabled
+  submitting.value = true
+  try {
+    const data = {
+      type: form.value.type,
+      name: form.value.name,
+      config: form.value.config,
+      enabled: form.value.enabled
+    }
+
+    if (editingChannel.value?.id) {
+      await channelStore.updateChannel(editingChannel.value.id, data)
+    } else {
+      await channelStore.createChannel(data)
+    }
+
+    showForm.value = false
+    editingChannel.value = null
+  } finally {
+    submitting.value = false
   }
-
-  if (editingChannel.value?.id) {
-    await channelStore.updateChannel(editingChannel.value.id, data)
-  } else {
-    await channelStore.createChannel(data)
-  }
-
-  showForm.value = false
-  editingChannel.value = null
 }
 
 function confirmDelete(id: string) {
@@ -321,15 +342,18 @@ async function testChannel(channel: NotificationChannel) {
                 :id="`channel-${field.key}`"
                 v-model="form.config[field.key]"
                 type="text"
-                :placeholder="field.placeholder"
+                :placeholder="loadingConfig ? '加载中...' : field.placeholder"
+                :disabled="loadingConfig"
               />
             </div>
           </div>
         </form>
 
         <DialogFooter class="gap-2">
-          <Button variant="outline" @click="showForm = false">取消</Button>
-          <Button @click="handleSubmit">保存</Button>
+          <Button variant="outline" @click="showForm = false" :disabled="submitting">取消</Button>
+          <Button @click="handleSubmit" :disabled="submitting || loadingConfig">
+            {{ submitting ? '保存中...' : '保存' }}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

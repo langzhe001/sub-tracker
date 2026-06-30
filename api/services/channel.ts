@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/d1'
 import * as schema from '../db/schema'
 import { eq, and } from 'drizzle-orm'
-import type { CreateChannelRequest, UpdateChannelRequest, ChannelType } from '../types'
+import type { CreateChannelRequest, UpdateChannelRequest } from '../types'
 import {
   encrypt,
   encryptJSON,
@@ -10,6 +10,7 @@ import {
   isEncrypted,
   MIN_ENCRYPTION_KEY_LENGTH
 } from './crypto'
+import { createNotificationService } from './notification'
 
 export class ChannelService {
   constructor(
@@ -161,38 +162,13 @@ export class ChannelService {
       return { success: false, error: 'Channel not found' }
     }
 
-    const config = JSON.parse(channel.config as string) as Record<string, string>
-
-    try {
-      switch (channel.type as ChannelType) {
-        case 'email':
-          return { success: true }
-        case 'telegram':
-          if (!config.botToken || !config.chatId) {
-            return { success: false, error: 'Missing Telegram bot token or chat ID' }
-          }
-          return { success: true }
-        case 'feishu':
-          if (!config.webhookUrl) {
-            return { success: false, error: 'Missing Feishu webhook URL' }
-          }
-          return { success: true }
-        case 'wechat':
-          if (!config.webhookUrl) {
-            return { success: false, error: 'Missing WeChat webhook URL' }
-          }
-          return { success: true }
-        case 'notifyx':
-          if (!config.apiKey) {
-            return { success: false, error: 'Missing NotifyX API key' }
-          }
-          return { success: true }
-        default:
-          return { success: false, error: 'Unknown channel type' }
-      }
-    } catch (e) {
-      return { success: false, error: String(e) }
+    // 使用通知服务真实发送一条测试消息
+    const notificationService = createNotificationService(this.db, this.encryptionKey)
+    const testSubscription = {
+      name: '测试通知',
+      expireDate: new Date().toISOString().split('T')[0]
     }
+    return notificationService.sendNotification(channel, testSubscription, 0)
   }
 }
 

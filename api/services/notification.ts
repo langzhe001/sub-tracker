@@ -91,7 +91,12 @@ export class NotificationService {
   }
 
   private async sendEmail(config: Record<string, string>, subscription: any, message: string): Promise<{ success: boolean; error?: string }> {
-    return { success: true }
+    const { smtpServer, smtpPort, email, password, toEmail } = config
+    if (!smtpServer || !email || !toEmail) {
+      return { success: false, error: '邮件配置不完整（SMTP 服务器、邮箱、收件人为必填项）' }
+    }
+    // Cloudflare Workers 不支持原生 SMTP，需通过外部邮件 API 服务（如 Resend、Mailgun）转发
+    return { success: false, error: '当前环境暂不支持 SMTP 直发测试，请使用 Telegram/飞书/企业微信/NotifyX 渠道测试' }
   }
 
   private async sendTelegram(config: Record<string, string>, message: string): Promise<{ success: boolean; error?: string }> {

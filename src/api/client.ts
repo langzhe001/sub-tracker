@@ -207,6 +207,10 @@ class ApiClient {
     return this.request<NotificationChannel[]>('/channels')
   }
 
+  async getChannel(id: string) {
+    return this.request<NotificationChannel>(`/channels/${id}`)
+  }
+
   async createChannel(data: Partial<NotificationChannel>) {
     return this.request<NotificationChannel>('/channels', {
       method: 'POST',
