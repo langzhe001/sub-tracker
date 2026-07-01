@@ -204,6 +204,7 @@ migrate.post('/encrypt-all-fields', async (c) => {
       expireDate: string;
       reminderDays: string | null;
       extendMode: string | null;
+      customRenewalDays: string | null;
     }>;
     stats.subscriptions.total = subs.length;
 
@@ -246,6 +247,10 @@ migrate.post('/encrypt-all-fields', async (c) => {
         }
         if (sub.extendMode && !isEncrypted(sub.extendMode)) {
           updates.extendMode = await encrypt(sub.extendMode, key);
+          changed = true;
+        }
+        if (sub.customRenewalDays && !isEncrypted(sub.customRenewalDays)) {
+          updates.customRenewalDays = await encrypt(sub.customRenewalDays, key);
           changed = true;
         }
 

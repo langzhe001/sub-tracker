@@ -3,7 +3,7 @@ import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSubscriptionStore, useGroupStore } from '@/stores'
 import { api } from '@/api/client'
-import { Plus, Search, Filter, Edit2, Trash2, Calendar, Send, RefreshCw, Check, X } from 'lucide-vue-next'
+import { Plus, Search, Filter, Edit2, Trash2, Calendar, Send, RefreshCw, Check, X, Download } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -22,7 +22,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
-import { getDaysUntilExpire, getExpireStatus, formatExpireDate, expireLabel, isRecurring } from '@/lib/date'
+import { getDaysUntilExpire, getExpireStatus, formatExpireDate, expireLabel } from '@/lib/date'
 
 const router = useRouter()
 const subscriptionStore = useSubscriptionStore()
@@ -40,6 +40,10 @@ const testResult = ref<{ id: string; success: number; failed: number; total: num
 // 一键续期状态
 const extendingId = ref<string | null>(null)
 const extendResult = ref<{ id: string; success: boolean; error?: string } | null>(null)
+
+// 导出状态
+const exporting = ref(false)
+const exportError = ref('')
 
 onMounted(async () => {
   await Promise.all([
@@ -140,16 +144,60 @@ async function extendSubscription(id: string) {
     }, 5000)
   }
 }
+
+/**
+ * 导出备份：下载全部订阅、分组、通知渠道的 JSON 文件
+ */
+async function exportBackup() {
+  exporting.value = true
+  exportError.value = ''
+  try {
+    const res = await api.exportData()
+    if (res.success && res.data) {
+      const json = JSON.stringify(res.data, null, 2)
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const date = new Date().toISOString().split('T')[0]
+      a.href = url
+      a.download = `sub-tracker-backup-${date}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } else {
+      exportError.value = res.error || '导出失败'
+      setTimeout(() => { exportError.value = '' }, 5000)
+    }
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
   <div class="animate-fade-in">
     <div class="flex items-center justify-between mb-4 md:mb-8">
       <h1 class="text-xl md:text-2xl font-bold">订阅管理</h1>
-      <Button @click="router.push({ name: 'subscription-new' })">
-        <Plus class="w-4 h-4" />
-        添加订阅
-      </Button>
+      <div class="flex items-center gap-2">
+        <Button
+          variant="outline"
+          :disabled="exporting"
+          @click="exportBackup"
+        >
+          <Download v-if="!exporting" class="w-4 h-4" />
+          <RefreshCw v-else class="w-4 h-4 animate-spin" />
+          {{ exporting ? '导出中...' : '导出备份' }}
+        </Button>
+        <Button @click="router.push({ name: 'subscription-new' })">
+          <Plus class="w-4 h-4" />
+          添加订阅
+        </Button>
+      </div>
+    </div>
+
+    <div v-if="exportError" class="mb-4 p-3 rounded-lg text-sm bg-destructive/10 text-destructive">
+      {{ exportError }}
     </div>
 
     <Card class="p-3 md:p-4 mb-4 md:mb-6">
@@ -270,7 +318,6 @@ async function extendSubscription(id: string) {
               {{ testingId === sub.id ? '推送中...' : '测试推送' }}
             </Button>
             <Button
-              v-if="isRecurring(sub.expireDate)"
               variant="outline"
               size="sm"
               class="flex-1 h-8"

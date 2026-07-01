@@ -41,6 +41,7 @@ export interface CreateSubscriptionRequest {
   expireDate: string
   reminderDays?: number
   extendMode?: ExtendMode
+  customRenewalDays?: number
   groupId?: string
 }
 

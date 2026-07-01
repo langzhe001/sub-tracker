@@ -5,12 +5,12 @@ import type { CreateSubscriptionRequest, UpdateSubscriptionRequest, Stats, Exten
 import {
   encrypt,
   decryptField,
+  decryptJSON,
+  isEncrypted,
   MIN_ENCRYPTION_KEY_LENGTH
 } from './crypto'
 import { getDaysUntilExpire, getExpireStatus, isRecurring, getRecurringMonthDay } from './date'
 import { createNotificationService } from './notification'
-
-const RECURRING_PREFIX = 'R:'
 
 type SubscriptionRow = {
   id: string
@@ -23,6 +23,7 @@ type SubscriptionRow = {
   expireDate: string
   reminderDays: string | null
   extendMode: string | null
+  customRenewalDays: string | null
   groupId: string | null
   userId: string
   createdAt: Date | null
@@ -31,20 +32,27 @@ type SubscriptionRow = {
 
 /**
  * 根据续费周期换算延续天数
- * - monthly / custom: 30 天
  * - yearly: 365 天
+ * - monthly: 30 天
+ * - custom: 使用 customRenewalDays（默认 30）
  */
-function getExtendDays(renewalPeriod: string | null): number {
-  return renewalPeriod === 'yearly' ? 365 : 30
+function getExtendDays(renewalPeriod: string | null, customRenewalDays: string | null): number {
+  if (renewalPeriod === 'yearly') return 365
+  if (renewalPeriod === 'monthly') return 30
+  // custom
+  const days = Number(customRenewalDays)
+  if (!isNaN(days) && days > 0) return days
+  return 30
 }
 
 /**
- * 将日期对象转为 R:MM-DD 周期模式存储值
+ * 将日期对象转为 YYYY-MM-DD 存储值（保留年份，用于续期后的到期日）
  */
-function dateToRecurringValue(d: Date): string {
+function dateToISOValue(d: Date): string {
+  const yyyy = d.getFullYear()
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
-  return `${RECURRING_PREFIX}${mm}-${dd}`
+  return `${yyyy}-${mm}-${dd}`
 }
 
 /**
@@ -117,6 +125,7 @@ export class SubscriptionService {
     record.reminderDays = await decryptField(record.reminderDays, key)
     // extendMode 可能为 null（旧数据）或明文（默认值），decryptField 会原样返回未加密值
     record.extendMode = (await decryptField(record.extendMode, key)) ?? 'expire'
+    record.customRenewalDays = (await decryptField(record.customRenewalDays, key)) ?? '30'
   }
 
   /**
@@ -152,6 +161,9 @@ export class SubscriptionService {
     }
     if (result.extendMode !== undefined && result.extendMode !== null && result.extendMode !== '') {
       result.extendMode = await encrypt(String(result.extendMode), key)
+    }
+    if (result.customRenewalDays !== undefined && result.customRenewalDays !== null && result.customRenewalDays !== '') {
+      result.customRenewalDays = await encrypt(String(result.customRenewalDays), key)
     }
 
     return result
@@ -194,6 +206,7 @@ export class SubscriptionService {
 
     const reminderDaysStr = String(data.reminderDays ?? 7)
     const extendModeVal = data.extendMode || 'expire'
+    const customRenewalDaysStr = String(data.customRenewalDays ?? 30)
 
     // 加密所有敏感字段
     const encryptedName = await encrypt(data.name, key)
@@ -207,6 +220,7 @@ export class SubscriptionService {
     const encryptedExpireDate = await encrypt(data.expireDate, key)
     const encryptedReminderDays = await encrypt(reminderDaysStr, key)
     const encryptedExtendMode = await encrypt(extendModeVal, key)
+    const encryptedCustomRenewalDays = await encrypt(customRenewalDaysStr, key)
 
     await this.db.insert(schema.subscriptions).values({
       id,
@@ -219,6 +233,7 @@ export class SubscriptionService {
       expireDate: encryptedExpireDate,
       reminderDays: encryptedReminderDays,
       extendMode: encryptedExtendMode,
+      customRenewalDays: encryptedCustomRenewalDays,
       groupId: data.groupId || null,
       userId
     }).run()
@@ -238,6 +253,7 @@ export class SubscriptionService {
     if (data.expireDate !== undefined) rawUpdates.expireDate = data.expireDate
     if (data.reminderDays !== undefined) rawUpdates.reminderDays = String(data.reminderDays)
     if (data.extendMode !== undefined) rawUpdates.extendMode = data.extendMode
+    if (data.customRenewalDays !== undefined) rawUpdates.customRenewalDays = String(data.customRenewalDays)
     if (data.groupId !== undefined) rawUpdates.groupId = data.groupId
 
     const encryptedUpdates = await this.encryptUpdateFields(rawUpdates)
@@ -253,33 +269,39 @@ export class SubscriptionService {
   /**
    * 一键续期：按订阅的 extendMode 与 renewalPeriod 推后到期日期
    *
-   * 仅周期模式（R:MM-DD）支持。计算规则：
-   * - extendMode='expire'：基准日 = 当前到期日（滚动到未来）+ 延续天数
-   * - extendMode='current'：基准日 = 今天 + 延续天数
-   * 延续天数：yearly=365，monthly/custom=30
-   * 计算后转回 R:MM-DD 存储格式
+   * 支持周期模式（R:MM-DD）和非周期模式（YYYY-MM-DD）。计算规则：
+   * - extendMode='expire'：基准日 = 当前到期日（周期模式滚动到未来；非周期若已过期则用今天）
+   * - extendMode='current'：基准日 = 今天
+   * 延续天数：yearly=365，monthly=30，custom=customRenewalDays
+   * 计算后存储为 YYYY-MM-DD（保留年份），确保剩余天数计算正确
    */
   async extend(id: string, userId: string): Promise<SubscriptionRow | undefined> {
     const sub = await this.getById(id, userId)
     if (!sub) return undefined
 
-    if (!isRecurring(sub.expireDate)) {
-      throw new Error('仅周期模式订阅支持续期')
-    }
-
     const extendMode = (sub.extendMode === 'current' ? 'current' : 'expire') as ExtendMode
-    const days = getExtendDays(sub.renewalPeriod)
+    const days = getExtendDays(sub.renewalPeriod, sub.customRenewalDays)
+
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
 
     let baseDate: Date
     if (extendMode === 'current') {
-      baseDate = new Date()
-      baseDate.setHours(0, 0, 0, 0)
-    } else {
+      // 以当前日期为基准
+      baseDate = today
+    } else if (isRecurring(sub.expireDate)) {
+      // 周期模式：滚动到下一次到期日作为基准
       baseDate = getRecurringNextDate(sub.expireDate)
+    } else {
+      // 非周期模式：以当前到期日为基准，若已过期则用今天
+      const parsed = new Date(sub.expireDate)
+      parsed.setHours(0, 0, 0, 0)
+      baseDate = !isNaN(parsed.getTime()) && parsed.getTime() >= today.getTime() ? parsed : today
     }
 
     const newDate = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000)
-    const newExpireDate = dateToRecurringValue(newDate)
+    // 保留年份，存为 YYYY-MM-DD，避免 getDaysUntilExpire 再次滚动导致续期失效
+    const newExpireDate = dateToISOValue(newDate)
 
     return this.update(id, userId, { expireDate: newExpireDate })
   }
@@ -288,6 +310,97 @@ export class SubscriptionService {
     await this.db.delete(schema.subscriptions)
       .where(and(eq(schema.subscriptions.id, id), eq(schema.subscriptions.userId, userId)))
       .run()
+  }
+
+  /**
+   * 导出用户全部数据（备份）：订阅、分组、通知渠道
+   * 所有字段已解密，返回明文 JSON 结构
+   */
+  async exportData(userId: string): Promise<{
+    exportedAt: string
+    version: number
+    subscriptions: any[]
+    groups: any[]
+    channels: any[]
+  }> {
+    const key = this.validateEncryptionKey()
+
+    // 订阅
+    const subs = await this.getAll(userId)
+    const subscriptions = subs.map((s) => ({
+      id: s.id,
+      name: s.name,
+      description: s.description ?? '',
+      icon: s.icon ?? '',
+      amount: s.amount !== null && s.amount !== undefined && s.amount !== '' ? Number(s.amount) : null,
+      currency: s.currency ?? 'CNY',
+      renewalPeriod: s.renewalPeriod ?? 'monthly',
+      expireDate: s.expireDate,
+      reminderDays: Number(s.reminderDays) || 7,
+      extendMode: s.extendMode ?? 'expire',
+      customRenewalDays: Number(s.customRenewalDays) || 30,
+      groupId: s.groupId ?? null,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt
+    }))
+
+    // 分组（name 加密存储）
+    const groupRows = (await this.db.select().from(schema.groups)
+      .where(eq(schema.groups.userId, userId))
+      .all()) as unknown as GroupRow[]
+    const groups = []
+    for (const g of groupRows) {
+      groups.push({
+        id: g.id,
+        name: (await decryptField(g.name, key)) ?? g.name,
+        color: g.color ?? '#6366F1',
+        icon: g.icon ?? '',
+        sortOrder: g.sortOrder ?? 0,
+        createdAt: g.createdAt
+      })
+    }
+
+    // 通知渠道（name + config 加密存储）
+    const channelRows = (await this.db.select().from(schema.notificationChannels)
+      .where(eq(schema.notificationChannels.userId, userId))
+      .all()) as unknown as ChannelRow[]
+    const channels = []
+    for (const ch of channelRows) {
+      const name = (await decryptField(ch.name, key)) ?? ch.name
+      let config: Record<string, string> = {}
+      if (ch.config) {
+        // 解析渠道配置
+        if (isEncrypted(ch.config)) {
+          try {
+            config = await decryptJSON<Record<string, string>>(ch.config, key)
+          } catch {
+            config = {}
+          }
+        } else {
+          try {
+            config = JSON.parse(ch.config) as Record<string, string>
+          } catch {
+            config = {}
+          }
+        }
+      }
+      channels.push({
+        id: ch.id,
+        type: ch.type,
+        name,
+        config,
+        enabled: ch.enabled === 1,
+        createdAt: ch.createdAt
+      })
+    }
+
+    return {
+      exportedAt: new Date().toISOString(),
+      version: 1,
+      subscriptions,
+      groups,
+      channels
+    }
   }
 
   /**

@@ -138,6 +138,21 @@ function validateExtendMode(mode: unknown): { valid: boolean; value: string; err
   return { valid: true, value: mode };
 }
 
+/**
+ * 验证自定义续费天数（续费周期为 custom 时使用）
+ * 范围 1-3650 天，默认 30
+ */
+function validateCustomRenewalDays(day: unknown): { valid: boolean; value: number; error?: string } {
+  if (day === undefined || day === null || day === '') {
+    return { valid: true, value: 30 };
+  }
+  const n = Number(day);
+  if (isNaN(n) || !isFinite(n) || n < 1 || n > 3650) {
+    return { valid: false, value: 30, error: 'Custom renewal days must be between 1 and 3650' };
+  }
+  return { valid: true, value: Math.floor(n) };
+}
+
 function validateConfig(config: unknown, type: string): { valid: boolean; value: Record<string, string>; error?: string } {
   const result: Record<string, string> = {};
   if (!config || typeof config !== 'object') {
@@ -201,6 +216,7 @@ export {
   validateChannelType,
   validateRenewalPeriod,
   validateExtendMode,
+  validateCustomRenewalDays,
   validateConfig,
   MAX_TEXT_LENGTH,
   MAX_LONG_TEXT_LENGTH,

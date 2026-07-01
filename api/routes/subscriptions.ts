@@ -10,7 +10,8 @@ import {
   validateNumber,
   validateReminderDay,
   validateRenewalPeriod,
-  validateExtendMode
+  validateExtendMode,
+  validateCustomRenewalDays
 } from '../services/validation';
 import { MIN_ENCRYPTION_KEY_LENGTH } from '../services/crypto';
 import type { Env } from '../types';
@@ -70,7 +71,8 @@ subscriptions.get('/', async (c) => {
     data: (data as any[]).map((sub: any) => ({
       ...sub,
       amount: sub.amount !== null && sub.amount !== undefined ? Number(sub.amount) : null,
-      reminderDays: Number(sub.reminderDays) || 7
+      reminderDays: Number(sub.reminderDays) || 7,
+      customRenewalDays: Number(sub.customRenewalDays) || 30
     }))
   });
 });
@@ -84,6 +86,22 @@ subscriptions.get('/stats', async (c) => {
 
   const stats = await service.getStats(payload.userId);
   return c.json<ApiResponse>({ success: true, data: stats });
+});
+
+/**
+ * 导出备份：返回用户全部订阅、分组、通知渠道（已解密）的 JSON
+ * GET /api/subscriptions/export
+ * 必须定义在 /:id 之前，否则会被 /:id 捕获
+ */
+subscriptions.get('/export', async (c) => {
+  const payload = getPayload(c);
+  if (!payload) return;
+
+  const db = drizzle(c.env.DB!, { schema });
+  const service = createSubscriptionService(db, c.env.ENCRYPTION_KEY);
+
+  const data = await service.exportData(payload.userId);
+  return c.json<ApiResponse>({ success: true, data });
 });
 
 subscriptions.get('/:id', async (c) => {
@@ -109,7 +127,8 @@ subscriptions.get('/:id', async (c) => {
     data: {
       ...subscription,
       amount: subscription.amount !== null && subscription.amount !== undefined ? Number(subscription.amount) : null,
-      reminderDays: Number((subscription as any).reminderDays) || 7
+      reminderDays: Number((subscription as any).reminderDays) || 7,
+      customRenewalDays: Number((subscription as any).customRenewalDays) || 30
     }
   });
 });
@@ -150,6 +169,11 @@ subscriptions.post('/', async (c) => {
     return c.json<ApiResponse>({ success: false, error: extendModeCheck.error }, 400);
   }
 
+  const customDaysCheck = validateCustomRenewalDays(body.customRenewalDays);
+  if (!customDaysCheck.valid) {
+    return c.json<ApiResponse>({ success: false, error: customDaysCheck.error }, 400);
+  }
+
   const description = sanitizeLongString(body.description);
   const icon = sanitizeString(body.icon, 16);
   const amountCheck = validateNumber(body.amount, 0, 1_000_000);
@@ -183,6 +207,7 @@ subscriptions.post('/', async (c) => {
     expireDate: body.expireDate,
     reminderDays: reminderCheck.value,
     extendMode: extendModeCheck.value as 'expire' | 'current',
+    customRenewalDays: customDaysCheck.value,
     groupId
   });
 
@@ -196,7 +221,8 @@ subscriptions.post('/', async (c) => {
     data: {
       ...subscription,
       amount: subscription.amount !== null && subscription.amount !== undefined ? Number(subscription.amount) : null,
-      reminderDays: Number(subscription.reminderDays) || 7
+      reminderDays: Number(subscription.reminderDays) || 7,
+      customRenewalDays: Number((subscription as any).customRenewalDays) || 30
     }
   }, 201);
 });
@@ -280,6 +306,14 @@ subscriptions.put('/:id', async (c) => {
     updateData.extendMode = extendModeCheck.value;
   }
 
+  if (body.customRenewalDays !== undefined) {
+    const customDaysCheck = validateCustomRenewalDays(body.customRenewalDays);
+    if (!customDaysCheck.valid) {
+      return c.json<ApiResponse>({ success: false, error: customDaysCheck.error }, 400);
+    }
+    updateData.customRenewalDays = customDaysCheck.value;
+  }
+
   if (body.groupId !== undefined) {
     if (body.groupId === null) {
       updateData.groupId = null;
@@ -309,7 +343,8 @@ subscriptions.put('/:id', async (c) => {
     data: {
       ...subscription,
       amount: subscription.amount !== null && subscription.amount !== undefined ? Number(subscription.amount) : null,
-      reminderDays: Number((subscription as any).reminderDays) || 7
+      reminderDays: Number((subscription as any).reminderDays) || 7,
+      customRenewalDays: Number((subscription as any).customRenewalDays) || 30
     }
   });
 });
@@ -358,7 +393,8 @@ subscriptions.post('/:id/extend', async (c) => {
       data: {
         ...subscription,
         amount: subscription.amount !== null && subscription.amount !== undefined ? Number(subscription.amount) : null,
-        reminderDays: Number((subscription as any).reminderDays) || 7
+        reminderDays: Number((subscription as any).reminderDays) || 7,
+        customRenewalDays: Number((subscription as any).customRenewalDays) || 30
       }
     });
   } catch (err) {

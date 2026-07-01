@@ -41,6 +41,7 @@ const form = ref({
   currency: 'CNY',
   renewalPeriod: 'monthly' as Subscription['renewalPeriod'],
   reminderDays: 7 as number,
+  customRenewalDays: 30 as number,
   groupId: '' as string | undefined
 })
 
@@ -60,6 +61,7 @@ onMounted(async () => {
         currency: sub.currency || 'CNY',
         renewalPeriod: sub.renewalPeriod || 'monthly',
         reminderDays: sub.reminderDays,
+        customRenewalDays: sub.customRenewalDays || 30,
         groupId: sub.groupId
       }
 
@@ -155,6 +157,14 @@ async function handleSubmit() {
     return
   }
 
+  // 校验自定义续费天数
+  if (expireMode.value === 'recurring' && form.value.renewalPeriod === 'custom') {
+    if (!form.value.customRenewalDays || form.value.customRenewalDays < 1 || form.value.customRenewalDays > 3650) {
+      error.value = '自定义续费天数必须在 1-3650 之间'
+      return
+    }
+  }
+
   loading.value = true
   error.value = ''
 
@@ -164,6 +174,8 @@ async function handleSubmit() {
       expireDate,
       // 非周期模式不传 extendMode（后端会保留默认值）
       extendMode: expireMode.value === 'recurring' ? extendMode.value : undefined,
+      // 仅周期模式且 custom 时传 customRenewalDays
+      customRenewalDays: expireMode.value === 'recurring' ? form.value.customRenewalDays : undefined,
       groupId: form.value.groupId || undefined
     }
 
@@ -325,6 +337,26 @@ async function handleSubmit() {
                   <option value="yearly">每年</option>
                   <option value="custom">自定义</option>
                 </select>
+              </div>
+
+              <!-- 自定义续费天数（仅续费周期为 custom 时显示） -->
+              <div v-if="form.renewalPeriod === 'custom'" class="space-y-2">
+                <Label for="customRenewalDays">自定义续费天数</Label>
+                <div class="flex items-center gap-2">
+                  <Input
+                    id="customRenewalDays"
+                    v-model.number="form.customRenewalDays"
+                    type="number"
+                    min="1"
+                    max="3650"
+                    placeholder="30"
+                    class="flex-1"
+                  />
+                  <span class="text-sm text-muted-foreground whitespace-nowrap">天</span>
+                </div>
+                <p class="text-xs text-muted-foreground">
+                  一键续期时按此天数推后到期日期（范围 1-3650 天）。
+                </p>
               </div>
 
               <!-- 延续设置（仅周期模式显示） -->

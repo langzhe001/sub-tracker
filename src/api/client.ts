@@ -21,6 +21,7 @@ interface Subscription {
   expireDate: string
   reminderDays: number
   extendMode?: 'expire' | 'current'
+  customRenewalDays?: number
   groupId?: string
   userId: string
   createdAt?: string
@@ -81,6 +82,14 @@ interface SubscriptionTestResult {
   total: number
   success: number
   failed: number
+}
+
+interface BackupData {
+  exportedAt: string
+  version: number
+  subscriptions: any[]
+  groups: any[]
+  channels: any[]
 }
 
 const API_BASE = '/api'
@@ -208,6 +217,13 @@ class ApiClient {
     })
   }
 
+  /**
+   * 导出备份：返回全部订阅、分组、通知渠道（已解密）的 JSON
+   */
+  async exportData(): Promise<ApiResponse<BackupData>> {
+    return this.request<BackupData>(`/subscriptions/export`)
+  }
+
   async getStats() {
     return this.request<Stats>('/subscriptions/stats')
   }
@@ -286,5 +302,6 @@ export type {
   Stats,
   NotificationLog,
   SubscriptionTestResult,
+  BackupData,
   ChannelType
 }

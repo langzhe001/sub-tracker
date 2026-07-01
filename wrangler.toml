@@ -44,3 +44,4 @@ crons = ["10 10 * * *"]
 #    npx wrangler d1 execute sub-tracker --remote --file=./migrations/002_encrypt_configs.sql
 #    npx wrangler d1 execute sub-tracker --remote --file=./migrations/003_encrypt_all_fields.sql
 #    npx wrangler d1 execute sub-tracker --remote --file=./migrations/004_add_extend_mode.sql
+#    npx wrangler d1 execute sub-tracker --remote --file=./migrations/005_add_custom_renewal_days.sql
