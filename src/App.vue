@@ -10,7 +10,8 @@ import {
   LogOut,
   ScrollText,
   Menu,
-  X
+  X,
+  ListTodo
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -35,6 +36,7 @@ watch(() => route.path, () => {
 
 const navItems = [
   { path: '/', name: 'dashboard', icon: LayoutDashboard, label: '仪表盘' },
+  { path: '/tasks', name: 'tasks', icon: ListTodo, label: '任务管理' },
   { path: '/subscriptions', name: 'subscriptions', icon: CreditCard, label: '订阅管理' },
   { path: '/groups', name: 'groups', icon: FolderTree, label: '分组管理' },
   { path: '/channels', name: 'channels', icon: Bell, label: '通知渠道' },

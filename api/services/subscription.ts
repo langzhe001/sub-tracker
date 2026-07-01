@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm'
 import type { CreateSubscriptionRequest, UpdateSubscriptionRequest, Stats, ExtendMode } from '../types'
 import {
   encrypt,
+  encryptJSON,
   decryptField,
   decryptJSON,
   isEncrypted,
@@ -431,6 +432,181 @@ export class SubscriptionService {
       subscriptions,
       groups,
       channels
+    }
+  }
+
+  /**
+   * 恢复备份：从备份 JSON 导入数据
+   * 模式：
+   * - 'replace'：先清空当前用户的订阅、分组、通知渠道，再导入（默认）
+   * - 'merge'：保留现有数据，仅追加备份中的数据（可能产生重复）
+   *
+   * 备份中的明文会被重新加密后写入数据库。
+   * 分组 ID 会被重新映射，订阅的 groupId 也会同步更新。
+   */
+  async importData(
+    userId: string,
+    backup: {
+      version?: number
+      subscriptions?: any[]
+      groups?: any[]
+      channels?: any[]
+    },
+    mode: 'replace' | 'merge' = 'replace'
+  ): Promise<{
+    subscriptions: number
+    groups: number
+    channels: number
+  }> {
+    const key = this.validateEncryptionKey()
+
+    const subs = Array.isArray(backup.subscriptions) ? backup.subscriptions : []
+    const groups = Array.isArray(backup.groups) ? backup.groups : []
+    const channels = Array.isArray(backup.channels) ? backup.channels : []
+
+    // 限制单次导入数量，防止过大请求
+    const MAX_IMPORT = 2000
+    if (subs.length > MAX_IMPORT || groups.length > MAX_IMPORT || channels.length > MAX_IMPORT) {
+      throw new Error(`Import data too large (max ${MAX_IMPORT} per category)`)
+    }
+
+    // replace 模式：先删除当前用户的所有数据（注意顺序，避免外键约束）
+    if (mode === 'replace') {
+      await this.db.delete(schema.subscriptions)
+        .where(eq(schema.subscriptions.userId, userId)).run()
+      await this.db.delete(schema.notificationChannels)
+        .where(eq(schema.notificationChannels.userId, userId)).run()
+      await this.db.delete(schema.groups)
+        .where(eq(schema.groups.userId, userId)).run()
+    }
+
+    // 分组 ID 映射（旧 ID → 新 ID），用于同步订阅的 groupId
+    const groupIdMap = new Map<string, string>()
+
+    // 导入分组
+    for (const g of groups) {
+      if (!g || typeof g.name !== 'string' || !g.name) continue
+      const newId = crypto.randomUUID()
+      if (typeof g.id === 'string') {
+        groupIdMap.set(g.id, newId)
+      }
+      const encryptedName = await encrypt(String(g.name).slice(0, 200), key)
+      const color = typeof g.color === 'string' ? g.color : '#6366F1'
+      const encryptedColor = color ? await encrypt(color, key) : '#6366F1'
+      const icon = typeof g.icon === 'string' && g.icon ? await encrypt(g.icon.slice(0, 16), key) : null
+      const sortOrder = Number(g.sortOrder) || 0
+
+      await this.db.insert(schema.groups).values({
+        id: newId,
+        name: encryptedName,
+        color: encryptedColor,
+        icon,
+        sortOrder,
+        userId
+      }).run()
+    }
+
+    // 导入订阅
+    let importedSubs = 0
+    for (const s of subs) {
+      if (!s || typeof s.name !== 'string' || !s.name) continue
+      const id = crypto.randomUUID()
+
+      const encryptedName = await encrypt(String(s.name).slice(0, 200), key)
+      const description = typeof s.description === 'string' && s.description
+        ? await encrypt(String(s.description).slice(0, 500), key)
+        : null
+      const icon = typeof s.icon === 'string' && s.icon
+        ? await encrypt(String(s.icon).slice(0, 16), key)
+        : null
+      const amountVal = s.amount !== undefined && s.amount !== null && s.amount !== ''
+        ? String(s.amount)
+        : null
+      const encryptedAmount = amountVal ? await encrypt(amountVal, key) : null
+      const currency = typeof s.currency === 'string' && s.currency ? s.currency : 'CNY'
+      const encryptedCurrency = await encrypt(currency, key)
+      const renewalPeriod = typeof s.renewalPeriod === 'string' && s.renewalPeriod
+        ? s.renewalPeriod
+        : 'monthly'
+      const encryptedRenewalPeriod = await encrypt(renewalPeriod, key)
+      const expireDate = typeof s.expireDate === 'string' && s.expireDate ? s.expireDate : dateToISOValue(new Date())
+      const encryptedExpireDate = await encrypt(expireDate, key)
+      const reminderDays = Number(s.reminderDays) || 7
+      const encryptedReminderDays = await encrypt(String(reminderDays), key)
+      const extendMode = typeof s.extendMode === 'string' && s.extendMode ? s.extendMode : 'expire'
+      const encryptedExtendMode = await encrypt(extendMode, key)
+      const customRenewalDays = Number(s.customRenewalDays) || 30
+      const encryptedCustomRenewalDays = await encrypt(String(customRenewalDays), key)
+
+      // 重新映射 groupId
+      let groupId: string | null = null
+      if (typeof s.groupId === 'string' && s.groupId) {
+        groupId = groupIdMap.get(s.groupId) ?? null
+      }
+
+      await this.db.insert(schema.subscriptions).values({
+        id,
+        name: encryptedName,
+        description,
+        icon,
+        amount: encryptedAmount,
+        currency: encryptedCurrency,
+        renewalPeriod: encryptedRenewalPeriod,
+        expireDate: encryptedExpireDate,
+        reminderDays: encryptedReminderDays,
+        extendMode: encryptedExtendMode,
+        customRenewalDays: encryptedCustomRenewalDays,
+        groupId,
+        userId
+      }).run()
+      importedSubs++
+    }
+
+    // 导入通知渠道
+    let importedChannels = 0
+    for (const ch of channels) {
+      if (!ch || typeof ch.type !== 'string' || !ch.type) continue
+      if (typeof ch.name !== 'string' || !ch.name) continue
+
+      const id = crypto.randomUUID()
+      const encryptedName = await encrypt(String(ch.name).slice(0, 200), key)
+
+      // config 为明文对象，需重新加密
+      let configStr = '{}'
+      if (ch.config && typeof ch.config === 'object') {
+        const cfg: Record<string, string> = {}
+        const cfgObj = ch.config as Record<string, unknown>
+        for (const k of Object.keys(cfgObj).slice(0, 20)) {
+          const v = cfgObj[k]
+          if (typeof v === 'string') cfg[k] = v.slice(0, 8192)
+        }
+        configStr = await encryptJSON(cfg, key)
+      } else if (typeof ch.config === 'string' && ch.config) {
+        try {
+          const parsed = JSON.parse(ch.config)
+          configStr = await encryptJSON(parsed, key)
+        } catch {
+          configStr = await encrypt(ch.config, key)
+        }
+      }
+
+      const enabled = ch.enabled === false || ch.enabled === 0 ? 0 : 1
+
+      await this.db.insert(schema.notificationChannels).values({
+        id,
+        type: ch.type,
+        name: encryptedName,
+        config: configStr,
+        enabled,
+        userId
+      }).run()
+      importedChannels++
+    }
+
+    return {
+      subscriptions: importedSubs,
+      groups: groups.filter((g) => g && typeof g.name === 'string' && g.name).length,
+      channels: importedChannels
     }
   }
 

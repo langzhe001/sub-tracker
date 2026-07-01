@@ -92,6 +92,77 @@ interface BackupData {
   channels: any[]
 }
 
+interface ImportResult {
+  subscriptions: number
+  groups: number
+  channels: number
+}
+
+/* =========================================================================
+ * 任务管理模块类型
+ * ========================================================================= */
+
+type TaskPriority = 0 | 1 | 2 | 3
+type TaskStatus = 'todo' | 'done'
+
+interface TaskFolder {
+  id: string
+  name: string
+  sortOrder: number
+  userId: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+interface TaskList {
+  id: string
+  name: string
+  color: string
+  icon?: string
+  folderId?: string | null
+  sortOrder: number
+  userId: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+interface Task {
+  id: string
+  title: string
+  description?: string
+  listId?: string | null
+  priority: TaskPriority
+  status: TaskStatus
+  dueDate?: string | null
+  remindAt?: string | null
+  sortOrder: number
+  pinned: boolean
+  completedAt?: string | null
+  tagIds?: string[]
+  userId: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+interface Subtask {
+  id: string
+  taskId: string
+  title: string
+  status: TaskStatus
+  sortOrder: number
+  userId: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+interface Tag {
+  id: string
+  name: string
+  color: string
+  userId: string
+  createdAt?: string
+}
+
 const API_BASE = '/api'
 
 class ApiClient {
@@ -224,6 +295,18 @@ class ApiClient {
     return this.request<BackupData>(`/subscriptions/export`)
   }
 
+  /**
+   * 恢复备份：从备份 JSON 导入数据
+   * @param backup 备份数据对象
+   * @param mode 'replace' 清空后导入（默认） | 'merge' 追加导入
+   */
+  async importData(backup: BackupData, mode: 'replace' | 'merge' = 'replace'): Promise<ApiResponse<ImportResult>> {
+    return this.request<ImportResult>(`/subscriptions/import`, {
+      method: 'POST',
+      body: JSON.stringify({ backup, mode })
+    })
+  }
+
   async getStats() {
     return this.request<Stats>('/subscriptions/stats')
   }
@@ -289,6 +372,143 @@ class ApiClient {
   async getNotificationLogs(limit: number = 50) {
     return this.request<NotificationLog[]>(`/notifications?limit=${limit}`)
   }
+
+  /* =======================================================================
+   * 任务管理 API
+   * ===================================================================== */
+
+  // ---- 文件夹 ----
+  async getTaskFolders() {
+    return this.request<TaskFolder[]>(`/tasks/folders`)
+  }
+
+  async createTaskFolder(data: Partial<TaskFolder>) {
+    return this.request<TaskFolder>(`/tasks/folders`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateTaskFolder(id: string, data: Partial<TaskFolder>) {
+    return this.request<TaskFolder>(`/tasks/folders/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteTaskFolder(id: string) {
+    return this.request<void>(`/tasks/folders/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // ---- 清单 ----
+  async getTaskLists() {
+    return this.request<TaskList[]>(`/tasks/lists`)
+  }
+
+  async createTaskList(data: Partial<TaskList>) {
+    return this.request<TaskList>(`/tasks/lists`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateTaskList(id: string, data: Partial<TaskList>) {
+    return this.request<TaskList>(`/tasks/lists/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteTaskList(id: string) {
+    return this.request<void>(`/tasks/lists/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // ---- 任务 ----
+  async getTasks(listId?: string, status?: 'todo' | 'done') {
+    const params = new URLSearchParams()
+    if (listId) params.set('listId', listId)
+    if (status) params.set('status', status)
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return this.request<Task[]>(`/tasks${query}`)
+  }
+
+  async getTask(id: string) {
+    return this.request<Task>(`/tasks/${id}`)
+  }
+
+  async createTask(data: Partial<Task> & { tagIds?: string[] }) {
+    return this.request<Task>(`/tasks`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateTask(id: string, data: Partial<Task> & { tagIds?: string[] }) {
+    return this.request<Task>(`/tasks/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteTask(id: string) {
+    return this.request<void>(`/tasks/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // ---- 子任务 ----
+  async getSubtasks(taskId: string) {
+    return this.request<Subtask[]>(`/tasks/${taskId}/subtasks`)
+  }
+
+  async createSubtask(taskId: string, data: Partial<Subtask>) {
+    return this.request<Subtask>(`/tasks/${taskId}/subtasks`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateSubtask(id: string, data: Partial<Subtask>) {
+    return this.request<Subtask>(`/tasks/subtasks/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteSubtask(id: string) {
+    return this.request<void>(`/tasks/subtasks/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // ---- 标签 ----
+  async getTags() {
+    return this.request<Tag[]>(`/tasks/tags`)
+  }
+
+  async createTag(data: Partial<Tag>) {
+    return this.request<Tag>(`/tasks/tags`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateTag(id: string, data: Partial<Tag>) {
+    return this.request<Tag>(`/tasks/tags/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteTag(id: string) {
+    return this.request<void>(`/tasks/tags/${id}`, {
+      method: 'DELETE'
+    })
+  }
 }
 
 export const api = new ApiClient()
@@ -303,5 +523,13 @@ export type {
   NotificationLog,
   SubscriptionTestResult,
   BackupData,
-  ChannelType
+  ImportResult,
+  ChannelType,
+  TaskPriority,
+  TaskStatus,
+  TaskFolder,
+  TaskList,
+  Task,
+  Subtask,
+  Tag
 }

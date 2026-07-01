@@ -217,6 +217,81 @@ function validateConfig(config: unknown, type: string): { valid: boolean; value:
   return { valid: true, value: result };
 }
 
+/* =========================================================================
+ * 任务管理模块验证
+ * ========================================================================= */
+
+/**
+ * 验证任务优先级（0-3）
+ */
+function validateTaskPriority(priority: unknown): { valid: boolean; value: number; error?: string } {
+  if (priority === undefined || priority === null || priority === '') {
+    return { valid: true, value: 0 };
+  }
+  const n = Number(priority);
+  if (isNaN(n) || n < 0 || n > 3 || !Number.isInteger(n)) {
+    return { valid: false, value: 0, error: 'Priority must be 0, 1, 2, or 3' };
+  }
+  return { valid: true, value: n };
+}
+
+/**
+ * 验证任务状态
+ */
+function validateTaskStatus(status: unknown): { valid: boolean; value: string; error?: string } {
+  if (status === undefined || status === null || status === '') {
+    return { valid: true, value: 'todo' };
+  }
+  if (typeof status !== 'string') {
+    return { valid: false, value: 'todo', error: 'Invalid task status' };
+  }
+  const validStatuses = ['todo', 'done'];
+  if (!validStatuses.includes(status)) {
+    return { valid: false, value: 'todo', error: 'Invalid task status (must be todo or done)' };
+  }
+  return { valid: true, value: status };
+}
+
+/**
+ * 验证任务到期日期（YYYY-MM-DD，不支持周期模式）
+ */
+function validateDueDate(date: unknown): { valid: boolean; value: string | null; error?: string } {
+  if (date === undefined || date === null || date === '') {
+    return { valid: true, value: null };
+  }
+  if (typeof date !== 'string') {
+    return { valid: false, value: null, error: 'Invalid due date format' };
+  }
+  if (!DATE_REGEX.test(date)) {
+    return { valid: false, value: null, error: 'Due date must be in YYYY-MM-DD format' };
+  }
+  const d = new Date(date);
+  if (isNaN(d.getTime())) {
+    return { valid: false, value: null, error: 'Invalid due date' };
+  }
+  return { valid: true, value: date };
+}
+
+/**
+ * 验证提醒时间（ISO 8601 datetime，如 2026-12-31T09:00:00）
+ */
+function validateRemindAt(date: unknown): { valid: boolean; value: string | null; error?: string } {
+  if (date === undefined || date === null || date === '') {
+    return { valid: true, value: null };
+  }
+  if (typeof date !== 'string') {
+    return { valid: false, value: null, error: 'Invalid remind time format' };
+  }
+  if (date.length > 32) {
+    return { valid: false, value: null, error: 'Remind time too long' };
+  }
+  const d = new Date(date);
+  if (isNaN(d.getTime())) {
+    return { valid: false, value: null, error: 'Invalid remind time' };
+  }
+  return { valid: true, value: date };
+}
+
 export {
   validateUUID,
   validateDate,
@@ -229,6 +304,10 @@ export {
   validateExtendMode,
   validateCustomRenewalDays,
   validateConfig,
+  validateTaskPriority,
+  validateTaskStatus,
+  validateDueDate,
+  validateRemindAt,
   MAX_TEXT_LENGTH,
   MAX_LONG_TEXT_LENGTH,
   UUID_REGEX

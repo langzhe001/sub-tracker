@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { api, type User, type Subscription, type Group, type NotificationChannel, type Stats } from '@/api/client'
+import { api, type User, type Subscription, type Group, type NotificationChannel, type Stats, type TaskFolder, type TaskList, type Task, type Subtask, type Tag, type TaskStatus } from '@/api/client'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(api.getToken())
@@ -253,4 +253,266 @@ export const useChannelStore = defineStore('channels', () => {
     deleteChannel,
     testChannel
   }
+})
+
+/* =========================================================================
+ * 任务管理模块 Store
+ * ========================================================================= */
+
+// 任务文件夹 Store
+export const useTaskFolderStore = defineStore('taskFolders', () => {
+  const folders = ref<TaskFolder[]>([])
+  const loading = ref(false)
+
+  async function fetchFolders() {
+    loading.value = true
+    try {
+      const res = await api.getTaskFolders()
+      if (res.success && res.data) {
+        folders.value = res.data
+      }
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function createFolder(data: Partial<TaskFolder>) {
+    const res = await api.createTaskFolder(data)
+    if (res.success && res.data) {
+      folders.value.push(res.data)
+      return res.data
+    }
+    return null
+  }
+
+  async function updateFolder(id: string, data: Partial<TaskFolder>) {
+    const res = await api.updateTaskFolder(id, data)
+    if (res.success && res.data) {
+      const idx = folders.value.findIndex(f => f.id === id)
+      if (idx !== -1) folders.value[idx] = res.data
+      return res.data
+    }
+    return null
+  }
+
+  async function deleteFolder(id: string) {
+    const res = await api.deleteTaskFolder(id)
+    if (res.success) {
+      folders.value = folders.value.filter(f => f.id !== id)
+      return true
+    }
+    return false
+  }
+
+  return { folders, loading, fetchFolders, createFolder, updateFolder, deleteFolder }
+})
+
+// 任务清单 Store
+export const useTaskListStore = defineStore('taskLists', () => {
+  const lists = ref<TaskList[]>([])
+  const loading = ref(false)
+
+  async function fetchLists() {
+    loading.value = true
+    try {
+      const res = await api.getTaskLists()
+      if (res.success && res.data) {
+        lists.value = res.data
+      }
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function createList(data: Partial<TaskList>) {
+    const res = await api.createTaskList(data)
+    if (res.success && res.data) {
+      lists.value.push(res.data)
+      return res.data
+    }
+    return null
+  }
+
+  async function updateList(id: string, data: Partial<TaskList>) {
+    const res = await api.updateTaskList(id, data)
+    if (res.success && res.data) {
+      const idx = lists.value.findIndex(l => l.id === id)
+      if (idx !== -1) lists.value[idx] = res.data
+      return res.data
+    }
+    return null
+  }
+
+  async function deleteList(id: string) {
+    const res = await api.deleteTaskList(id)
+    if (res.success) {
+      lists.value = lists.value.filter(l => l.id !== id)
+      return true
+    }
+    return false
+  }
+
+  return { lists, loading, fetchLists, createList, updateList, deleteList }
+})
+
+// 任务 Store
+export const useTaskStore = defineStore('tasks', () => {
+  const tasks = ref<Task[]>([])
+  const loading = ref(false)
+
+  async function fetchTasks(listId?: string, status?: TaskStatus) {
+    loading.value = true
+    try {
+      const res = await api.getTasks(listId, status)
+      if (res.success && res.data) {
+        tasks.value = res.data
+      }
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function createTask(data: Partial<Task> & { tagIds?: string[] }) {
+    const res = await api.createTask(data)
+    if (res.success && res.data) {
+      tasks.value.unshift(res.data)
+      return res.data
+    }
+    return null
+  }
+
+  async function updateTask(id: string, data: Partial<Task> & { tagIds?: string[] }) {
+    const res = await api.updateTask(id, data)
+    if (res.success && res.data) {
+      const idx = tasks.value.findIndex(t => t.id === id)
+      if (idx !== -1) tasks.value[idx] = res.data
+      return res.data
+    }
+    return null
+  }
+
+  async function deleteTask(id: string) {
+    const res = await api.deleteTask(id)
+    if (res.success) {
+      tasks.value = tasks.value.filter(t => t.id !== id)
+      return true
+    }
+    return false
+  }
+
+  /**
+   * 切换任务完成状态
+   */
+  async function toggleStatus(task: Task) {
+    const newStatus: TaskStatus = task.status === 'done' ? 'todo' : 'done'
+    return await updateTask(task.id, { status: newStatus })
+  }
+
+  return { tasks, loading, fetchTasks, createTask, updateTask, deleteTask, toggleStatus }
+})
+
+// 子任务 Store
+export const useSubtaskStore = defineStore('subtasks', () => {
+  // key: taskId, value: subtasks
+  const subtaskMap = ref<Record<string, Subtask[]>>({})
+  const loading = ref(false)
+
+  async function fetchSubtasks(taskId: string) {
+    loading.value = true
+    try {
+      const res = await api.getSubtasks(taskId)
+      if (res.success && res.data) {
+        subtaskMap.value[taskId] = res.data
+      }
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function createSubtask(taskId: string, data: Partial<Subtask>) {
+    const res = await api.createSubtask(taskId, data)
+    if (res.success && res.data) {
+      if (!subtaskMap.value[taskId]) subtaskMap.value[taskId] = []
+      subtaskMap.value[taskId].push(res.data)
+      return res.data
+    }
+    return null
+  }
+
+  async function updateSubtask(taskId: string, id: string, data: Partial<Subtask>) {
+    const res = await api.updateSubtask(id, data)
+    if (res.success && res.data) {
+      const arr = subtaskMap.value[taskId]
+      if (arr) {
+        const idx = arr.findIndex(s => s.id === id)
+        if (idx !== -1) arr[idx] = res.data
+      }
+      return res.data
+    }
+    return null
+  }
+
+  async function deleteSubtask(taskId: string, id: string) {
+    const res = await api.deleteSubtask(id)
+    if (res.success) {
+      const arr = subtaskMap.value[taskId]
+      if (arr) subtaskMap.value[taskId] = arr.filter(s => s.id !== id)
+      return true
+    }
+    return false
+  }
+
+  function getSubtasks(taskId: string): Subtask[] {
+    return subtaskMap.value[taskId] || []
+  }
+
+  return { subtaskMap, loading, fetchSubtasks, createSubtask, updateSubtask, deleteSubtask, getSubtasks }
+})
+
+// 标签 Store
+export const useTagStore = defineStore('tags', () => {
+  const tags = ref<Tag[]>([])
+  const loading = ref(false)
+
+  async function fetchTags() {
+    loading.value = true
+    try {
+      const res = await api.getTags()
+      if (res.success && res.data) {
+        tags.value = res.data
+      }
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function createTag(data: Partial<Tag>) {
+    const res = await api.createTag(data)
+    if (res.success && res.data) {
+      tags.value.push(res.data)
+      return res.data
+    }
+    return null
+  }
+
+  async function updateTag(id: string, data: Partial<Tag>) {
+    const res = await api.updateTag(id, data)
+    if (res.success && res.data) {
+      const idx = tags.value.findIndex(t => t.id === id)
+      if (idx !== -1) tags.value[idx] = res.data
+      return res.data
+    }
+    return null
+  }
+
+  async function deleteTag(id: string) {
+    const res = await api.deleteTag(id)
+    if (res.success) {
+      tags.value = tags.value.filter(t => t.id !== id)
+      return true
+    }
+    return false
+  }
+
+  return { tags, loading, fetchTags, createTag, updateTag, deleteTag }
 })

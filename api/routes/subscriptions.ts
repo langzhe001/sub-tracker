@@ -104,6 +104,46 @@ subscriptions.get('/export', async (c) => {
   return c.json<ApiResponse>({ success: true, data });
 });
 
+/**
+ * 恢复备份：从备份 JSON 导入数据
+ * POST /api/subscriptions/import
+ * 请求体：{ backup: { subscriptions, groups, channels }, mode?: 'replace' | 'merge' }
+ * 必须定义在 /:id 之前，否则会被 /:id 捕获
+ */
+subscriptions.post('/import', async (c) => {
+  const payload = getPayload(c);
+  if (!payload) return;
+
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json<ApiResponse>({ success: false, error: 'Invalid request body' }, 400);
+  }
+
+  const backup = body?.backup ?? body;
+  if (!backup || typeof backup !== 'object') {
+    return c.json<ApiResponse>({ success: false, error: 'Invalid backup data format' }, 400);
+  }
+
+  if (!Array.isArray(backup.subscriptions) && !Array.isArray(backup.groups) && !Array.isArray(backup.channels)) {
+    return c.json<ApiResponse>({ success: false, error: 'Backup data must contain subscriptions, groups, or channels array' }, 400);
+  }
+
+  const mode: 'replace' | 'merge' = body?.mode === 'merge' ? 'merge' : 'replace';
+
+  const db = drizzle(c.env.DB!, { schema });
+  const service = createSubscriptionService(db, c.env.ENCRYPTION_KEY);
+
+  try {
+    const result = await service.importData(payload.userId, backup, mode);
+    return c.json<ApiResponse>({ success: true, data: result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json<ApiResponse>({ success: false, error: msg }, 400);
+  }
+});
+
 subscriptions.get('/:id', async (c) => {
   const payload = getPayload(c);
   if (!payload) return;

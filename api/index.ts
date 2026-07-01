@@ -6,6 +6,7 @@ import subscriptionsRoute from './routes/subscriptions';
 import groupsRoute from './routes/groups';
 import channelsRoute from './routes/channels';
 import notificationsRoute from './routes/notifications';
+import tasksRoute from './routes/tasks';
 import migrateRoute from './routes/migrate';
 import { verifyToken, MIN_SECRET_LENGTH } from './services/jwt';
 import { MIN_ENCRYPTION_KEY_LENGTH } from './services/crypto';
@@ -127,6 +128,7 @@ app.route('/api/subscriptions', subscriptionsRoute);
 app.route('/api/groups', groupsRoute);
 app.route('/api/channels', channelsRoute);
 app.route('/api/notifications', notificationsRoute);
+app.route('/api/tasks', tasksRoute);
 app.route('/api/migrate', migrateRoute);
 
 // 静态资源由 Workers Static Assets binding（env.ASSETS）直接处理
