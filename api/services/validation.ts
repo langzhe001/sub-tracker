@@ -292,6 +292,73 @@ function validateRemindAt(date: unknown): { valid: boolean; value: string | null
   return { valid: true, value: date };
 }
 
+/* =========================================================================
+ * 习惯打卡模块验证
+ * ========================================================================= */
+
+/**
+ * 验证习惯频率
+ */
+function validateHabitFrequency(freq: unknown): { valid: boolean; value: string; error?: string } {
+  if (freq === undefined || freq === null || freq === '') {
+    return { valid: true, value: 'daily' };
+  }
+  if (typeof freq !== 'string') {
+    return { valid: false, value: 'daily', error: 'Invalid habit frequency' };
+  }
+  const validFreqs = ['daily', 'weekly', 'custom'];
+  if (!validFreqs.includes(freq)) {
+    return { valid: false, value: 'daily', error: 'Invalid habit frequency (must be daily, weekly, or custom)' };
+  }
+  return { valid: true, value: freq };
+}
+
+/**
+ * 验证每周打卡天数（"1,3,5" 格式，1-7）
+ */
+function validateWeeklyDays(days: unknown): { valid: boolean; value: string | null; error?: string } {
+  if (days === undefined || days === null || days === '') {
+    return { valid: true, value: null };
+  }
+  if (typeof days !== 'string') {
+    return { valid: false, value: null, error: 'Invalid weekly days format' };
+  }
+  const parts = days.split(',').map((s) => s.trim()).filter(Boolean);
+  if (parts.length === 0) {
+    return { valid: true, value: null };
+  }
+  if (parts.length > 7) {
+    return { valid: false, value: null, error: 'Too many weekly days' };
+  }
+  for (const p of parts) {
+    const n = Number(p);
+    if (isNaN(n) || n < 1 || n > 7 || !Number.isInteger(n)) {
+      return { valid: false, value: null, error: 'Weekly day must be 1-7' };
+    }
+  }
+  return { valid: true, value: parts.join(',') };
+}
+
+/**
+ * 验证提醒时间 HH:MM
+ */
+function validateTimeHM(time: unknown): { valid: boolean; value: string | null; error?: string } {
+  if (time === undefined || time === null || time === '') {
+    return { valid: true, value: null };
+  }
+  if (typeof time !== 'string') {
+    return { valid: false, value: null, error: 'Invalid time format' };
+  }
+  if (!/^\d{1,2}:\d{2}$/.test(time)) {
+    return { valid: false, value: null, error: 'Time must be in HH:MM format' };
+  }
+  const [h, m] = time.split(':').map(Number);
+  if (h < 0 || h > 23 || m < 0 || m > 59) {
+    return { valid: false, value: null, error: 'Invalid time value' };
+  }
+  return { valid: true, value: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` };
+}
+
 export {
   validateUUID,
   validateDate,
@@ -308,6 +375,9 @@ export {
   validateTaskStatus,
   validateDueDate,
   validateRemindAt,
+  validateHabitFrequency,
+  validateWeeklyDays,
+  validateTimeHM,
   MAX_TEXT_LENGTH,
   MAX_LONG_TEXT_LENGTH,
   UUID_REGEX

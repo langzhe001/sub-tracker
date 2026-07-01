@@ -3,7 +3,7 @@ import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSubscriptionStore, useGroupStore } from '@/stores'
 import { api } from '@/api/client'
-import { Plus, Search, Filter, Edit2, Trash2, Calendar, Send, RefreshCw, Check, X, Download, Upload } from 'lucide-vue-next'
+import { Plus, Search, Filter, Edit2, Trash2, Calendar, Send, RefreshCw, Check, X } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -40,19 +40,6 @@ const testResult = ref<{ id: string; success: number; failed: number; total: num
 // 一键续期状态
 const extendingId = ref<string | null>(null)
 const extendResult = ref<{ id: string; success: boolean; error?: string } | null>(null)
-
-// 导出状态
-const exporting = ref(false)
-const exportError = ref('')
-
-// 恢复备份状态
-const importing = ref(false)
-const importError = ref('')
-const importResult = ref<{ subscriptions: number; groups: number; channels: number } | null>(null)
-const showImportConfirm = ref(false)
-const pendingBackup = ref<any>(null)
-const importMode = ref<'replace' | 'merge'>('replace')
-const fileInput = ref<HTMLInputElement | null>(null)
 
 onMounted(async () => {
   await Promise.all([
@@ -153,106 +140,6 @@ async function extendSubscription(id: string) {
     }, 5000)
   }
 }
-
-/**
- * 导出备份：下载全部订阅、分组、通知渠道的 JSON 文件
- */
-async function exportBackup() {
-  exporting.value = true
-  exportError.value = ''
-  try {
-    const res = await api.exportData()
-    if (res.success && res.data) {
-      const json = JSON.stringify(res.data, null, 2)
-      const blob = new Blob([json], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      const date = new Date().toISOString().split('T')[0]
-      a.href = url
-      a.download = `sub-tracker-backup-${date}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    } else {
-      exportError.value = res.error || '导出失败'
-      setTimeout(() => { exportError.value = '' }, 5000)
-    }
-  } finally {
-    exporting.value = false
-  }
-}
-
-/**
- * 选择备份文件：触发文件选择对话框
- */
-function pickBackupFile() {
-  importError.value = ''
-  importResult.value = null
-  fileInput.value?.click()
-}
-
-/**
- * 文件选择回调：解析 JSON 并弹出确认对话框
- */
-async function onFileChange(e: Event) {
-  const target = e.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-
-  importError.value = ''
-  try {
-    const text = await file.text()
-    const data = JSON.parse(text)
-    if (!data || typeof data !== 'object') {
-      importError.value = '备份文件格式无效：不是有效的 JSON 对象'
-      setTimeout(() => { importError.value = '' }, 5000)
-      return
-    }
-    if (!Array.isArray(data.subscriptions) && !Array.isArray(data.groups) && !Array.isArray(data.channels)) {
-      importError.value = '备份文件无效：缺少 subscriptions / groups / channels 数组'
-      setTimeout(() => { importError.value = '' }, 5000)
-      return
-    }
-    pendingBackup.value = data
-    importMode.value = 'replace'
-    showImportConfirm.value = true
-  } catch (err) {
-    importError.value = '解析备份文件失败：' + (err instanceof Error ? err.message : String(err))
-    setTimeout(() => { importError.value = '' }, 5000)
-  } finally {
-    // 重置 input 以便可以重复选择同一文件
-    target.value = ''
-  }
-}
-
-/**
- * 确认恢复备份：调用 import API
- */
-async function confirmImport() {
-  if (!pendingBackup.value) return
-  importing.value = true
-  importError.value = ''
-  try {
-    const res = await api.importData(pendingBackup.value, importMode.value)
-    if (res.success && res.data) {
-      importResult.value = res.data
-      // 刷新本地数据
-      await Promise.all([
-        subscriptionStore.fetchSubscriptions(),
-        groupStore.fetchGroups()
-      ])
-    } else {
-      importError.value = res.error || '恢复备份失败'
-      setTimeout(() => { importError.value = '' }, 5000)
-    }
-  } finally {
-    importing.value = false
-    showImportConfirm.value = false
-    pendingBackup.value = null
-    setTimeout(() => { importResult.value = null }, 8000)
-  }
-}
 </script>
 
 <template>
@@ -260,53 +147,11 @@ async function confirmImport() {
     <div class="flex items-center justify-between mb-4 md:mb-8">
       <h1 class="text-xl md:text-2xl font-bold">订阅管理</h1>
       <div class="flex items-center gap-2">
-        <Button
-          variant="outline"
-          :disabled="exporting"
-          @click="exportBackup"
-        >
-          <Download v-if="!exporting" class="w-4 h-4" />
-          <RefreshCw v-else class="w-4 h-4 animate-spin" />
-          {{ exporting ? '导出中...' : '导出备份' }}
-        </Button>
-        <Button
-          variant="outline"
-          :disabled="importing"
-          @click="pickBackupFile"
-        >
-          <Upload v-if="!importing" class="w-4 h-4" />
-          <RefreshCw v-else class="w-4 h-4 animate-spin" />
-          {{ importing ? '恢复中...' : '恢复备份' }}
-        </Button>
         <Button @click="router.push({ name: 'subscription-new' })">
           <Plus class="w-4 h-4" />
           添加订阅
         </Button>
       </div>
-    </div>
-
-    <!-- 隐藏的文件输入 -->
-    <input
-      ref="fileInput"
-      type="file"
-      accept="application/json,.json"
-      class="hidden"
-      @change="onFileChange"
-    />
-
-    <div v-if="exportError" class="mb-4 p-3 rounded-lg text-sm bg-destructive/10 text-destructive">
-      {{ exportError }}
-    </div>
-
-    <div v-if="importError" class="mb-4 p-3 rounded-lg text-sm bg-destructive/10 text-destructive">
-      {{ importError }}
-    </div>
-
-    <div v-if="importResult" class="mb-4 p-3 rounded-lg text-sm bg-success/10 text-success flex items-center gap-2">
-      <Check class="w-4 h-4 shrink-0" />
-      <span>
-        恢复成功：已导入 {{ importResult.subscriptions }} 条订阅、{{ importResult.groups }} 个分组、{{ importResult.channels }} 个通知渠道
-      </span>
     </div>
 
     <Card class="p-3 md:p-4 mb-4 md:mb-6">
@@ -483,58 +328,6 @@ async function confirmImport() {
         <DialogFooter class="gap-2">
           <Button variant="outline" @click="showDeleteConfirm = false">取消</Button>
           <Button variant="destructive" @click="handleDelete">删除</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
-    <!-- 恢复备份确认对话框 -->
-    <Dialog v-model:open="showImportConfirm">
-      <DialogContent class="max-w-md">
-        <DialogHeader>
-          <DialogTitle>确认恢复备份</DialogTitle>
-          <DialogDescription>
-            将从备份文件恢复数据。请选择恢复模式：
-          </DialogDescription>
-        </DialogHeader>
-        <div class="space-y-3 py-2">
-          <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-accent">
-            <input
-              type="radio"
-              value="replace"
-              v-model="importMode"
-              class="mt-1"
-            />
-            <div class="flex-1">
-              <div class="font-medium text-sm">覆盖恢复（推荐）</div>
-              <div class="text-xs text-muted-foreground mt-1">
-                清空当前所有订阅、分组、通知渠道，然后导入备份数据
-              </div>
-            </div>
-          </label>
-          <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-accent">
-            <input
-              type="radio"
-              value="merge"
-              v-model="importMode"
-              class="mt-1"
-            />
-            <div class="flex-1">
-              <div class="font-medium text-sm">追加合并</div>
-              <div class="text-xs text-muted-foreground mt-1">
-                保留当前数据，将备份数据追加导入（可能产生重复）
-              </div>
-            </div>
-          </label>
-          <div v-if="pendingBackup" class="text-xs text-muted-foreground p-2 rounded-md bg-muted">
-            备份内容：{{ pendingBackup.subscriptions?.length || 0 }} 条订阅、{{ pendingBackup.groups?.length || 0 }} 个分组、{{ pendingBackup.channels?.length || 0 }} 个通知渠道
-          </div>
-        </div>
-        <DialogFooter class="gap-2">
-          <Button variant="outline" :disabled="importing" @click="showImportConfirm = false">取消</Button>
-          <Button :disabled="importing" @click="confirmImport">
-            <RefreshCw v-if="importing" class="w-4 h-4 animate-spin" />
-            {{ importing ? '恢复中...' : '确认恢复' }}
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

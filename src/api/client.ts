@@ -99,6 +99,37 @@ interface ImportResult {
 }
 
 /* =========================================================================
+ * 全量备份类型（包含订阅模块 + 任务模块）
+ * ========================================================================= */
+
+interface FullBackupData {
+  exportedAt: string
+  version: number
+  app: string
+  subscriptions: any[]
+  groups: any[]
+  channels: any[]
+  taskFolders: any[]
+  taskLists: any[]
+  tasks: any[]
+  subtasks: any[]
+  tags: any[]
+  taskTags: any[]
+}
+
+interface FullImportResult {
+  subscriptions: number
+  groups: number
+  channels: number
+  taskFolders: number
+  taskLists: number
+  tasks: number
+  subtasks: number
+  tags: number
+  taskTags: number
+}
+
+/* =========================================================================
  * 任务管理模块类型
  * ========================================================================= */
 
@@ -161,6 +192,47 @@ interface Tag {
   color: string
   userId: string
   createdAt?: string
+}
+
+/* =========================================================================
+ * 习惯打卡模块类型
+ * ========================================================================= */
+
+type HabitFrequency = 'daily' | 'weekly' | 'custom'
+
+interface Habit {
+  id: string
+  name: string
+  description?: string
+  color: string
+  icon?: string
+  frequency: HabitFrequency
+  weeklyDays?: string | null
+  customDays: number
+  goal: number
+  remindTime?: string | null
+  archived: boolean
+  sortOrder: number
+  userId: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+interface HabitRecord {
+  id: string
+  habitId: string
+  date: string
+  count: number
+  note?: string
+  userId: string
+  createdAt?: string
+}
+
+interface HabitStats {
+  totalHabits: number
+  activeHabits: number
+  todayCompleted: number
+  totalCheckIns: number
 }
 
 const API_BASE = '/api'
@@ -509,6 +581,102 @@ class ApiClient {
       method: 'DELETE'
     })
   }
+
+  /* =======================================================================
+   * 全量备份 API（订阅模块 + 任务模块）
+   * ===================================================================== */
+
+  /**
+   * 导出全量备份：订阅 + 分组 + 通知渠道 + 任务模块全部数据
+   */
+  async exportFullBackup(): Promise<ApiResponse<FullBackupData>> {
+    return this.request<FullBackupData>(`/backup/export`)
+  }
+
+  /**
+   * 恢复全量备份
+   * @param backup 全量备份数据
+   * @param mode 'replace' 清空后导入 | 'merge' 追加导入
+   */
+  async importFullBackup(backup: FullBackupData, mode: 'replace' | 'merge' = 'replace'): Promise<ApiResponse<FullImportResult>> {
+    return this.request<FullImportResult>(`/backup/import`, {
+      method: 'POST',
+      body: JSON.stringify({ backup, mode })
+    })
+  }
+
+  /* =======================================================================
+   * 习惯打卡 API
+   * ===================================================================== */
+
+  async getHabits(archived = false) {
+    const query = archived ? '?archived=1' : ''
+    return this.request<Habit[]>(`/habits${query}`)
+  }
+
+  async getHabit(id: string) {
+    return this.request<Habit>(`/habits/${id}`)
+  }
+
+  async createHabit(data: Partial<Habit>) {
+    return this.request<Habit>(`/habits`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateHabit(id: string, data: Partial<Habit>) {
+    return this.request<Habit>(`/habits/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteHabit(id: string) {
+    return this.request<void>(`/habits/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async getHabitStats() {
+    return this.request<HabitStats>(`/habits/stats`)
+  }
+
+  // 单个习惯的打卡记录
+  async getHabitRecords(habitId: string, startDate?: string, endDate?: string) {
+    const params = new URLSearchParams()
+    if (startDate) params.set('startDate', startDate)
+    if (endDate) params.set('endDate', endDate)
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return this.request<HabitRecord[]>(`/habits/records/${habitId}${query}`)
+  }
+
+  // 批量获取所有习惯在日期范围内的打卡记录
+  async getAllHabitRecords(startDate: string, endDate: string) {
+    return this.request<Record<string, HabitRecord[]>>(`/habits/records?startDate=${startDate}&endDate=${endDate}`)
+  }
+
+  async createHabitRecord(data: { habitId: string; date: string; count?: number; note?: string }) {
+    return this.request<HabitRecord>(`/habits/records`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteHabitRecord(id: string) {
+    return this.request<void>(`/habits/records/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  /**
+   * 撤销某习惯某天的全部打卡
+   */
+  async undoHabitRecordsByDate(habitId: string, date: string) {
+    return this.request<{ deleted: number }>(`/habits/${habitId}/records?date=${date}`, {
+      method: 'DELETE'
+    })
+  }
 }
 
 export const api = new ApiClient()
@@ -524,6 +692,8 @@ export type {
   SubscriptionTestResult,
   BackupData,
   ImportResult,
+  FullBackupData,
+  FullImportResult,
   ChannelType,
   TaskPriority,
   TaskStatus,
@@ -531,5 +701,9 @@ export type {
   TaskList,
   Task,
   Subtask,
-  Tag
+  Tag,
+  HabitFrequency,
+  Habit,
+  HabitRecord,
+  HabitStats
 }

@@ -145,3 +145,42 @@ export interface TaskStats {
   totalFolders: number
   totalTags: number
 }
+
+/* =========================================================================
+ * 习惯打卡模块类型（对标滴答清单第二阶段：习惯养成）
+ * ========================================================================= */
+
+export type HabitFrequency = 'daily' | 'weekly' | 'custom'
+
+export interface CreateHabitRequest {
+  name: string
+  description?: string
+  color?: string
+  icon?: string
+  frequency?: HabitFrequency
+  weeklyDays?: string
+  customDays?: number
+  goal?: number
+  remindTime?: string
+  sortOrder?: number
+}
+
+export interface UpdateHabitRequest extends Partial<CreateHabitRequest> {
+  archived?: boolean
+}
+
+export interface CreateHabitRecordRequest {
+  habitId: string
+  date: string // YYYY-MM-DD
+  count?: number
+  note?: string
+}
+
+export interface UpdateHabitRecordRequest extends Partial<Omit<CreateHabitRecordRequest, 'habitId'>> {}
+
+export interface HabitStats {
+  totalHabits: number
+  activeHabits: number
+  todayCompleted: number
+  totalCheckIns: number
+}

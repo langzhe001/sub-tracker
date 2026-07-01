@@ -63,6 +63,24 @@ const router = createRouter({
       name: 'tasks',
       component: () => import('@/views/Tasks.vue'),
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/habits',
+      name: 'habits',
+      component: () => import('@/views/Habits.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/pomodoro',
+      name: 'pomodoro',
+      component: () => import('@/views/Pomodoro.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/backup',
+      name: 'backup',
+      component: () => import('@/views/Backup.vue'),
+      meta: { requiresAuth: true }
     }
   ]
 })

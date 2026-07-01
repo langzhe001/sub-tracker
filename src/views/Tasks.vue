@@ -11,9 +11,9 @@ import { api } from '@/api/client'
 import type { Task, TaskList, Tag, Subtask, TaskStatus, TaskPriority } from '@/api/client'
 import {
   Plus, Search, Calendar, Flag, Tag as TagIcon, ListTodo,
-  CheckCircle2, Circle, ChevronDown, ChevronRight, Pin, PinOff,
+  CheckCircle2, Circle, ChevronDown, ChevronRight, ChevronLeft, Pin, PinOff,
   Edit2, Trash2, Folder, Inbox, Star, X, AlignLeft, Clock,
-  ListChecks, FolderPlus, Hash
+  ListChecks, FolderPlus, Hash, LayoutGrid, Grid2x2
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -42,6 +42,14 @@ const currentFilter = ref<{ type: FilterType; id?: string; name: string }>({
 const sortBy = ref<'manual' | 'dueDate' | 'priority' | 'title' | 'createdAt'>('createdAt')
 const searchQuery = ref('')
 const showCompleted = ref(true)
+
+// 视图模式：列表 / 日历 / 四象限
+type ViewMode = 'list' | 'calendar' | 'quadrant'
+const viewMode = ref<ViewMode>('list')
+
+// 日历视图状态
+const calendarMonth = ref(new Date())  // 当前显示的月份（任意日代表该月）
+const selectedCalendarDate = ref<string | null>(null)  // 选中某天后展示该天任务
 
 // 快速添加
 const quickAddText = ref('')
@@ -223,6 +231,108 @@ function isOverdue(date?: string | null, status?: string): boolean {
   const today = new Date().toISOString().split('T')[0]
   return date < today
 }
+
+/* =========================================================================
+ * 日历视图
+ * ========================================================================= */
+
+// 日历标题：2026年7月
+const calendarTitle = computed(() => {
+  const y = calendarMonth.value.getFullYear()
+  const m = calendarMonth.value.getMonth() + 1
+  return `${y}年${m}月`
+})
+
+// 生成日历网格（6 行 × 7 列，周一为一周起始）
+const calendarWeeks = computed(() => {
+  const year = calendarMonth.value.getFullYear()
+  const month = calendarMonth.value.getMonth()
+  const firstDay = new Date(year, month, 1)
+  // 周一=0, 周日=6
+  let startWeekday = firstDay.getDay() - 1
+  if (startWeekday < 0) startWeekday = 6
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const todayStr = new Date().toISOString().split('T')[0]
+
+  const weeks: { date: string | null; day: number; isToday: boolean; tasks: Task[] }[][] = []
+  let cells: { date: string | null; day: number; isToday: boolean; tasks: Task[] }[] = []
+
+  // 前置空格
+  for (let i = 0; i < startWeekday; i++) {
+    cells.push({ date: null, day: 0, isToday: false, tasks: [] })
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    const tasks = filteredTasks.value.filter(t => t.dueDate === dateStr)
+    cells.push({ date: dateStr, day: d, isToday: dateStr === todayStr, tasks })
+    if (cells.length === 7) {
+      weeks.push(cells)
+      cells = []
+    }
+  }
+  // 补齐末尾
+  if (cells.length > 0) {
+    while (cells.length < 7) {
+      cells.push({ date: null, day: 0, isToday: false, tasks: [] })
+    }
+    weeks.push(cells)
+  }
+  return weeks
+})
+
+// 拖拽：移动任务到某日期（点击日历某天设置任务到期日）
+const dragTaskId = ref<string | null>(null)
+function startDragTask(task: Task) {
+  dragTaskId.value = task.id
+}
+async function setTaskToDate(dateStr: string) {
+  if (!dragTaskId.value) return
+  await taskStore.updateTask(dragTaskId.value, { dueDate: dateStr })
+  dragTaskId.value = null
+}
+
+function prevMonth() {
+  const d = new Date(calendarMonth.value)
+  d.setMonth(d.getMonth() - 1)
+  calendarMonth.value = d
+}
+function nextMonth() {
+  const d = new Date(calendarMonth.value)
+  d.setMonth(d.getMonth() + 1)
+  calendarMonth.value = d
+}
+function goToday() {
+  calendarMonth.value = new Date()
+  selectedCalendarDate.value = new Date().toISOString().split('T')[0]
+}
+
+const calendarWeekdays = ['一', '二', '三', '四', '五', '六', '日']
+
+// 选中日期的任务
+const selectedDateTasks = computed(() => {
+  if (!selectedCalendarDate.value) return []
+  return filteredTasks.value.filter(t => t.dueDate === selectedCalendarDate.value)
+})
+
+/* =========================================================================
+ * 四象限视图（艾森豪威尔矩阵）
+ * 重要 = 优先级高（2/3），紧急 = 今天或已逾期
+ * Q1: 重要 + 紧急（priority≥2 且 dueDate≤今天）
+ * Q2: 重要 + 不紧急（priority≥2 且 dueDate>今天或无到期）
+ * Q3: 不重要 + 紧急（priority<2 且 dueDate≤今天）
+ * Q4: 不重要 + 不紧急（priority<2 且 dueDate>今天或无到期）
+ * ========================================================================= */
+
+const quadrantTasks = computed(() => {
+  const today = new Date().toISOString().split('T')[0]
+  const pending = filteredTasks.value.filter(t => t.status !== 'done')
+  const q1 = pending.filter(t => t.priority >= 2 && !!t.dueDate && t.dueDate <= today)
+  const q2 = pending.filter(t => t.priority >= 2 && (!t.dueDate || t.dueDate > today))
+  const q3 = pending.filter(t => t.priority < 2 && !!t.dueDate && t.dueDate <= today)
+  const q4 = pending.filter(t => t.priority < 2 && (!t.dueDate || t.dueDate > today))
+  return { q1, q2, q3, q4 }
+})
 
 // 智能识别日期（简单版：识别"今天/明天/后天/X月X日/X号"）
 function parseSmartDate(text: string): { title: string; dueDate: string | null } {
@@ -593,7 +703,35 @@ function subtaskProgress(taskId: string): { total: number; done: number } {
           <Badge variant="secondary" class="shrink-0">{{ filteredTasks.length }}</Badge>
         </div>
         <div class="flex items-center gap-2">
+          <!-- 视图切换 -->
+          <div class="flex items-center rounded-md border border-input overflow-hidden">
+            <button
+              class="h-9 px-2.5 text-sm transition-colors flex items-center gap-1"
+              :class="viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'"
+              title="列表视图"
+              @click="viewMode = 'list'"
+            >
+              <ListTodo class="w-4 h-4" />
+            </button>
+            <button
+              class="h-9 px-2.5 text-sm transition-colors flex items-center gap-1 border-l border-input"
+              :class="viewMode === 'calendar' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'"
+              title="日历视图"
+              @click="viewMode = 'calendar'"
+            >
+              <Calendar class="w-4 h-4" />
+            </button>
+            <button
+              class="h-9 px-2.5 text-sm transition-colors flex items-center gap-1 border-l border-input"
+              :class="viewMode === 'quadrant' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'"
+              title="四象限视图"
+              @click="viewMode = 'quadrant'"
+            >
+              <Grid2x2 class="w-4 h-4" />
+            </button>
+          </div>
           <select
+            v-if="viewMode === 'list'"
             v-model="sortBy"
             class="h-9 rounded-md border border-input bg-background px-3 text-sm"
           >
@@ -604,6 +742,7 @@ function subtaskProgress(taskId: string): { total: number; done: number } {
             <option value="manual">手动排序</option>
           </select>
           <Button
+            v-if="viewMode === 'list'"
             variant="outline"
             size="sm"
             @click="showCompleted = !showCompleted"
@@ -648,142 +787,386 @@ function subtaskProgress(taskId: string): { total: number; done: number } {
         />
       </div>
 
-      <!-- 任务列表 -->
-      <EmptyState
-        v-if="filteredTasks.length === 0"
-        :icon="ListTodo"
-        title="暂无任务"
-        description="在上方输入框快速创建第一个任务，或点击 + 添加更多详情。"
-      />
+      <!-- 任务列表视图 -->
+      <template v-if="viewMode === 'list'">
+        <EmptyState
+          v-if="filteredTasks.length === 0"
+          :icon="ListTodo"
+          title="暂无任务"
+          description="在上方输入框快速创建第一个任务，或点击 + 添加更多详情。"
+        />
 
-      <div v-else class="space-y-2 pb-8">
-        <Card
-          v-for="task in filteredTasks"
-          :key="task.id"
-          class="p-3 hover:border-primary/30 transition-all cursor-pointer group"
-          :class="{
-            'opacity-60': task.status === 'done',
-            'border-l-4': task.priority > 0
-          }"
-          :style="task.priority > 0 ? { borderLeftColor: priorityColor(task.priority) } : {}"
-          @click="openTaskDetail(task)"
-        >
-          <div class="flex items-start gap-3">
-            <!-- 完成复选框 -->
-            <button
-              class="mt-0.5 shrink-0"
-              @click.stop="toggleTask(task)"
-            >
-              <CheckCircle2
-                v-if="task.status === 'done'"
-                class="w-5 h-5 text-green-500"
-              />
-              <Circle
-                v-else
-                class="w-5 h-5 text-muted-foreground hover:text-primary transition-colors"
-              />
-            </button>
-
-            <!-- 任务内容 -->
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span
-                  class="text-sm font-medium"
-                  :class="{ 'line-through text-muted-foreground': task.status === 'done' }"
-                >{{ task.title }}</span>
-                <Pin
-                  v-if="task.pinned"
-                  class="w-3.5 h-3.5 text-amber-500 fill-amber-500 shrink-0"
+        <div v-else class="space-y-2 pb-8">
+          <Card
+            v-for="task in filteredTasks"
+            :key="task.id"
+            class="p-3 hover:border-primary/30 transition-all cursor-pointer group"
+            :class="{
+              'opacity-60': task.status === 'done',
+              'border-l-4': task.priority > 0
+            }"
+            :style="task.priority > 0 ? { borderLeftColor: priorityColor(task.priority) } : {}"
+            @click="openTaskDetail(task)"
+          >
+            <div class="flex items-start gap-3">
+              <!-- 完成复选框 -->
+              <button
+                class="mt-0.5 shrink-0"
+                @click.stop="toggleTask(task)"
+              >
+                <CheckCircle2
+                  v-if="task.status === 'done'"
+                  class="w-5 h-5 text-green-500"
                 />
+                <Circle
+                  v-else
+                  class="w-5 h-5 text-muted-foreground hover:text-primary transition-colors"
+                />
+              </button>
+
+              <!-- 任务内容 -->
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span
+                    class="text-sm font-medium"
+                    :class="{ 'line-through text-muted-foreground': task.status === 'done' }"
+                  >{{ task.title }}</span>
+                  <Pin
+                    v-if="task.pinned"
+                    class="w-3.5 h-3.5 text-amber-500 fill-amber-500 shrink-0"
+                  />
+                </div>
+
+                <p
+                  v-if="task.description"
+                  class="text-xs text-muted-foreground mt-1 line-clamp-2"
+                >{{ task.description }}</p>
+
+                <!-- 标签与元信息 -->
+                <div class="flex items-center gap-2 mt-2 flex-wrap">
+                  <Badge
+                    v-if="task.dueDate"
+                    :variant="isOverdue(task.dueDate, task.status) ? 'destructive' : 'secondary'"
+                    class="text-xs"
+                  >
+                    <Calendar class="w-3 h-3 mr-1" />
+                    {{ formatDate(task.dueDate) }}
+                  </Badge>
+
+                  <Badge
+                    v-if="task.remindAt"
+                    variant="outline"
+                    class="text-xs"
+                  >
+                    <Clock class="w-3 h-3 mr-1" />
+                    {{ task.remindAt.slice(11, 16) }}
+                  </Badge>
+
+                  <Badge
+                    v-for="tid in (task.tagIds || []).slice(0, 3)"
+                    :key="tid"
+                    variant="outline"
+                    class="text-xs"
+                    :style="{ color: getTag(tid)?.color, borderColor: getTag(tid)?.color + '40' }"
+                  >
+                    <Hash class="w-3 h-3 mr-1" />
+                    {{ getTag(tid)?.name }}
+                  </Badge>
+
+                  <Badge
+                    v-if="getList(task.listId)"
+                    variant="outline"
+                    class="text-xs"
+                    :style="{ color: getList(task.listId)?.color }"
+                  >
+                    <ListTodo class="w-3 h-3 mr-1" />
+                    {{ getList(task.listId)?.name }}
+                  </Badge>
+
+                  <span
+                    v-if="subtaskProgress(task.id).total > 0"
+                    class="text-xs text-muted-foreground flex items-center gap-1"
+                  >
+                    <ListChecks class="w-3 h-3" />
+                    {{ subtaskProgress(task.id).done }}/{{ subtaskProgress(task.id).total }}
+                  </span>
+                </div>
               </div>
 
-              <p
-                v-if="task.description"
-                class="text-xs text-muted-foreground mt-1 line-clamp-2"
-              >{{ task.description }}</p>
-
-              <!-- 标签与元信息 -->
-              <div class="flex items-center gap-2 mt-2 flex-wrap">
-                <Badge
-                  v-if="task.dueDate"
-                  :variant="isOverdue(task.dueDate, task.status) ? 'destructive' : 'secondary'"
-                  class="text-xs"
+              <!-- 操作按钮 -->
+              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-7 w-7"
+                  @click.stop="togglePin(task)"
                 >
-                  <Calendar class="w-3 h-3 mr-1" />
-                  {{ formatDate(task.dueDate) }}
-                </Badge>
-
-                <Badge
-                  v-if="task.remindAt"
-                  variant="outline"
-                  class="text-xs"
+                  <Pin v-if="!task.pinned" class="w-3.5 h-3.5" />
+                  <PinOff v-else class="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-7 w-7"
+                  @click.stop="openTaskDetail(task)"
                 >
-                  <Clock class="w-3 h-3 mr-1" />
-                  {{ task.remindAt.slice(11, 16) }}
-                </Badge>
-
-                <Badge
-                  v-for="tid in (task.tagIds || []).slice(0, 3)"
-                  :key="tid"
-                  variant="outline"
-                  class="text-xs"
-                  :style="{ color: getTag(tid)?.color, borderColor: getTag(tid)?.color + '40' }"
+                  <Edit2 class="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-7 w-7 text-destructive hover:text-destructive"
+                  @click.stop="deleteTarget = { type: 'task', id: task.id, name: task.title }"
                 >
-                  <Hash class="w-3 h-3 mr-1" />
-                  {{ getTag(tid)?.name }}
-                </Badge>
-
-                <Badge
-                  v-if="getList(task.listId)"
-                  variant="outline"
-                  class="text-xs"
-                  :style="{ color: getList(task.listId)?.color }"
-                >
-                  <ListTodo class="w-3 h-3 mr-1" />
-                  {{ getList(task.listId)?.name }}
-                </Badge>
-
-                <span
-                  v-if="subtaskProgress(task.id).total > 0"
-                  class="text-xs text-muted-foreground flex items-center gap-1"
-                >
-                  <ListChecks class="w-3 h-3" />
-                  {{ subtaskProgress(task.id).done }}/{{ subtaskProgress(task.id).total }}
-                </span>
+                  <Trash2 class="w-3.5 h-3.5" />
+                </Button>
               </div>
             </div>
+          </Card>
+        </div>
+      </template>
 
-            <!-- 操作按钮 -->
-            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <Button
-                variant="ghost"
-                size="icon"
-                class="h-7 w-7"
-                @click.stop="togglePin(task)"
-              >
-                <Pin v-if="!task.pinned" class="w-3.5 h-3.5" />
-                <PinOff v-else class="w-3.5 h-3.5" />
+      <!-- 日历视图 -->
+      <template v-else-if="viewMode === 'calendar'">
+        <Card class="p-4 mb-4">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold">{{ calendarTitle }}</h2>
+            <div class="flex items-center gap-2">
+              <Button variant="outline" size="icon" class="h-8 w-8" @click="prevMonth">
+                <ChevronLeft class="w-4 h-4" />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="h-7 w-7"
-                @click.stop="openTaskDetail(task)"
-              >
-                <Edit2 class="w-3.5 h-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="h-7 w-7 text-destructive hover:text-destructive"
-                @click.stop="deleteTarget = { type: 'task', id: task.id, name: task.title }"
-              >
-                <Trash2 class="w-3.5 h-3.5" />
+              <Button variant="outline" size="sm" @click="goToday">今天</Button>
+              <Button variant="outline" size="icon" class="h-8 w-8" @click="nextMonth">
+                <ChevronRight class="w-4 h-4" />
               </Button>
             </div>
           </div>
+
+          <!-- 星期表头 -->
+          <div class="grid grid-cols-7 gap-1 mb-1">
+            <div
+              v-for="(w, i) in calendarWeekdays"
+              :key="w"
+              class="text-center text-xs font-medium text-muted-foreground py-2"
+              :class="{ 'text-red-500': i >= 5 }"
+            >{{ w }}</div>
+          </div>
+
+          <!-- 日期网格 -->
+          <div class="grid grid-cols-7 gap-1">
+            <template v-for="(week, wi) in calendarWeeks" :key="wi">
+              <div
+                v-for="(cell, ci) in week"
+                :key="`${wi}-${ci}`"
+                class="min-h-[80px] rounded-md border p-1 cursor-pointer transition-colors hover:bg-accent/50"
+                :class="{
+                  'border-transparent': !cell.date,
+                  'border-border': cell.date,
+                  'bg-primary/10': cell.isToday,
+                  'ring-2 ring-primary': selectedCalendarDate === cell.date
+                }"
+                @click="cell.date && (selectedCalendarDate = cell.date)"
+                @drop.prevent="cell.date && setTaskToDate(cell.date)"
+                @dragover.prevent
+              >
+                <div
+                  v-if="cell.date"
+                  class="text-xs font-medium mb-1"
+                  :class="{ 'text-red-500': ci >= 5, 'text-primary': cell.isToday }"
+                >{{ cell.day }}</div>
+                <div v-if="cell.date" class="space-y-0.5">
+                  <div
+                    v-for="task in cell.tasks.slice(0, 3)"
+                    :key="task.id"
+                    draggable="true"
+                    @dragstart="startDragTask(task)"
+                    @click.stop="openTaskDetail(task)"
+                    class="text-xs px-1.5 py-0.5 rounded truncate cursor-pointer"
+                    :class="task.status === 'done' ? 'line-through opacity-60' : ''"
+                    :style="{
+                      backgroundColor: (task.priority >= 2 ? '#EF4444' : '#6366F1') + '20',
+                      color: task.priority >= 2 ? '#DC2626' : '#4F46E5',
+                      borderLeft: `2px solid ${task.priority >= 2 ? '#EF4444' : '#6366F1'}`
+                    }"
+                  >{{ task.title }}</div>
+                  <div
+                    v-if="cell.tasks.length > 3"
+                    class="text-xs text-muted-foreground px-1.5"
+                  >+{{ cell.tasks.length - 3 }} 更多</div>
+                </div>
+              </div>
+            </template>
+          </div>
+          <p class="text-xs text-muted-foreground mt-3 flex items-center gap-1">
+            <AlignLeft class="w-3 h-3" />
+            提示：拖动任务卡片到其他日期可修改到期日，点击日期查看当天任务
+          </p>
         </Card>
-      </div>
+
+        <!-- 选中日期的任务列表 -->
+        <div v-if="selectedCalendarDate" class="pb-8">
+          <div class="flex items-center gap-2 mb-3">
+            <h3 class="text-sm font-semibold">{{ formatDate(selectedCalendarDate) }} 的任务</h3>
+            <Badge variant="secondary">{{ selectedDateTasks.length }}</Badge>
+          </div>
+          <EmptyState
+            v-if="selectedDateTasks.length === 0"
+            :icon="Calendar"
+            title="当天无任务"
+            description="在上方快速添加任务，或拖动其他日期的任务到这天。"
+          />
+          <div v-else class="space-y-2">
+            <Card
+              v-for="task in selectedDateTasks"
+              :key="task.id"
+              class="p-3 cursor-pointer hover:border-primary/30 transition-all"
+              :class="{ 'border-l-4': task.priority > 0, 'opacity-60': task.status === 'done' }"
+              :style="task.priority > 0 ? { borderLeftColor: priorityColor(task.priority) } : {}"
+              @click="openTaskDetail(task)"
+            >
+              <div class="flex items-center gap-3">
+                <button @click.stop="toggleTask(task)">
+                  <CheckCircle2 v-if="task.status === 'done'" class="w-5 h-5 text-green-500" />
+                  <Circle v-else class="w-5 h-5 text-muted-foreground hover:text-primary" />
+                </button>
+                <span class="text-sm font-medium flex-1 truncate" :class="{ 'line-through': task.status === 'done' }">{{ task.title }}</span>
+                <Flag v-if="task.priority >= 2" class="w-3.5 h-3.5" :style="{ color: priorityColor(task.priority) }" />
+              </div>
+            </Card>
+          </div>
+        </div>
+      </template>
+
+      <!-- 四象限视图 -->
+      <template v-else-if="viewMode === 'quadrant'">
+        <div class="pb-8">
+          <p class="text-xs text-muted-foreground mb-4 flex items-center gap-1">
+            <AlignLeft class="w-3 h-3" />
+            按重要（优先级≥中）与紧急（今天或已逾期）划分任务，聚焦关键事项
+          </p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Q1 重要+紧急 -->
+            <Card class="p-4 border-l-4" style="border-left-color: #EF4444">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-sm flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                  重要 · 紧急
+                </h3>
+                <Badge variant="destructive">{{ quadrantTasks.q1.length }}</Badge>
+              </div>
+              <p class="text-xs text-muted-foreground mb-3">立即处理</p>
+              <div class="space-y-2 min-h-[60px]">
+                <div
+                  v-for="task in quadrantTasks.q1"
+                  :key="task.id"
+                  class="p-2 rounded-md bg-red-500/5 border border-red-500/20 cursor-pointer hover:bg-red-500/10 transition-colors"
+                  @click="openTaskDetail(task)"
+                >
+                  <div class="flex items-center gap-2">
+                    <button @click.stop="toggleTask(task)" class="shrink-0">
+                      <CheckCircle2 v-if="task.status === 'done'" class="w-4 h-4 text-green-500" />
+                      <Circle v-else class="w-4 h-4 text-red-500" />
+                    </button>
+                    <span class="text-sm flex-1 truncate">{{ task.title }}</span>
+                    <span v-if="task.dueDate" class="text-xs text-red-600">{{ formatDate(task.dueDate) }}</span>
+                  </div>
+                </div>
+                <p v-if="quadrantTasks.q1.length === 0" class="text-xs text-muted-foreground italic py-4 text-center">暂无任务</p>
+              </div>
+            </Card>
+
+            <!-- Q2 重要+不紧急 -->
+            <Card class="p-4 border-l-4" style="border-left-color: #F59E0B">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-sm flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                  重要 · 不紧急
+                </h3>
+                <Badge variant="secondary" class="bg-amber-500/15 text-amber-700">{{ quadrantTasks.q2.length }}</Badge>
+              </div>
+              <p class="text-xs text-muted-foreground mb-3">计划安排</p>
+              <div class="space-y-2 min-h-[60px]">
+                <div
+                  v-for="task in quadrantTasks.q2"
+                  :key="task.id"
+                  class="p-2 rounded-md bg-amber-500/5 border border-amber-500/20 cursor-pointer hover:bg-amber-500/10 transition-colors"
+                  @click="openTaskDetail(task)"
+                >
+                  <div class="flex items-center gap-2">
+                    <button @click.stop="toggleTask(task)" class="shrink-0">
+                      <CheckCircle2 v-if="task.status === 'done'" class="w-4 h-4 text-green-500" />
+                      <Circle v-else class="w-4 h-4 text-amber-500" />
+                    </button>
+                    <span class="text-sm flex-1 truncate">{{ task.title }}</span>
+                    <span v-if="task.dueDate" class="text-xs text-amber-600">{{ formatDate(task.dueDate) }}</span>
+                  </div>
+                </div>
+                <p v-if="quadrantTasks.q2.length === 0" class="text-xs text-muted-foreground italic py-4 text-center">暂无任务</p>
+              </div>
+            </Card>
+
+            <!-- Q3 不重要+紧急 -->
+            <Card class="p-4 border-l-4" style="border-left-color: #3B82F6">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-sm flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                  不重要 · 紧急
+                </h3>
+                <Badge variant="secondary" class="bg-blue-500/15 text-blue-700">{{ quadrantTasks.q3.length }}</Badge>
+              </div>
+              <p class="text-xs text-muted-foreground mb-3">委托他人</p>
+              <div class="space-y-2 min-h-[60px]">
+                <div
+                  v-for="task in quadrantTasks.q3"
+                  :key="task.id"
+                  class="p-2 rounded-md bg-blue-500/5 border border-blue-500/20 cursor-pointer hover:bg-blue-500/10 transition-colors"
+                  @click="openTaskDetail(task)"
+                >
+                  <div class="flex items-center gap-2">
+                    <button @click.stop="toggleTask(task)" class="shrink-0">
+                      <CheckCircle2 v-if="task.status === 'done'" class="w-4 h-4 text-green-500" />
+                      <Circle v-else class="w-4 h-4 text-blue-500" />
+                    </button>
+                    <span class="text-sm flex-1 truncate">{{ task.title }}</span>
+                    <span v-if="task.dueDate" class="text-xs text-blue-600">{{ formatDate(task.dueDate) }}</span>
+                  </div>
+                </div>
+                <p v-if="quadrantTasks.q3.length === 0" class="text-xs text-muted-foreground italic py-4 text-center">暂无任务</p>
+              </div>
+            </Card>
+
+            <!-- Q4 不重要+不紧急 -->
+            <Card class="p-4 border-l-4" style="border-left-color: #6B7280">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-sm flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full bg-gray-500"></span>
+                  不重要 · 不紧急
+                </h3>
+                <Badge variant="secondary">{{ quadrantTasks.q4.length }}</Badge>
+              </div>
+              <p class="text-xs text-muted-foreground mb-3">稍后处理</p>
+              <div class="space-y-2 min-h-[60px]">
+                <div
+                  v-for="task in quadrantTasks.q4"
+                  :key="task.id"
+                  class="p-2 rounded-md bg-gray-500/5 border border-gray-500/20 cursor-pointer hover:bg-gray-500/10 transition-colors"
+                  @click="openTaskDetail(task)"
+                >
+                  <div class="flex items-center gap-2">
+                    <button @click.stop="toggleTask(task)" class="shrink-0">
+                      <CheckCircle2 v-if="task.status === 'done'" class="w-4 h-4 text-green-500" />
+                      <Circle v-else class="w-4 h-4 text-gray-400" />
+                    </button>
+                    <span class="text-sm flex-1 truncate">{{ task.title }}</span>
+                    <span v-if="task.dueDate" class="text-xs text-gray-500">{{ formatDate(task.dueDate) }}</span>
+                  </div>
+                </div>
+                <p v-if="quadrantTasks.q4.length === 0" class="text-xs text-muted-foreground italic py-4 text-center">暂无任务</p>
+              </div>
+            </Card>
+          </div>
+        </div>
+      </template>
     </main>
   </div>
 

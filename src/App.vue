@@ -11,7 +11,10 @@ import {
   ScrollText,
   Menu,
   X,
-  ListTodo
+  ListTodo,
+  Timer,
+  Flame,
+  Database
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -37,10 +40,13 @@ watch(() => route.path, () => {
 const navItems = [
   { path: '/', name: 'dashboard', icon: LayoutDashboard, label: '仪表盘' },
   { path: '/tasks', name: 'tasks', icon: ListTodo, label: '任务管理' },
+  { path: '/habits', name: 'habits', icon: Flame, label: '习惯打卡' },
+  { path: '/pomodoro', name: 'pomodoro', icon: Timer, label: '番茄计时' },
   { path: '/subscriptions', name: 'subscriptions', icon: CreditCard, label: '订阅管理' },
   { path: '/groups', name: 'groups', icon: FolderTree, label: '分组管理' },
   { path: '/channels', name: 'channels', icon: Bell, label: '通知渠道' },
-  { path: '/notifications', name: 'notifications', icon: ScrollText, label: '通知日志' }
+  { path: '/notifications', name: 'notifications', icon: ScrollText, label: '通知日志' },
+  { path: '/backup', name: 'backup', icon: Database, label: '备份恢复' }
 ]
 
 async function handleLogout() {

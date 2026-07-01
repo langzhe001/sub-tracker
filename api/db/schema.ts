@@ -143,6 +143,47 @@ export const taskTags = sqliteTable('task_tags', {
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
 })
 
+/* =========================================================================
+ * 习惯打卡模块（对标滴答清单 - 第二阶段：习惯养成）
+ * 敏感字段（name/goal）使用 AES-GCM 加密存储
+ * ========================================================================= */
+
+// 习惯：用户定义的待打卡项目
+// frequency: 'daily' | 'weekly' | 'custom'
+//   - daily: 每天
+//   - weekly: 每周（weeklyDays 存储星期几，逗号分隔，如 "1,3,5"）
+//   - custom: 自定义（customDays 存储间隔天数）
+export const habits = sqliteTable('habits', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  color: text('color').default('#6366F1'),
+  icon: text('icon'),
+  frequency: text('frequency').default('daily'),
+  weeklyDays: text('weekly_days'), // "1,3,5" 表示周一三五
+  customDays: integer('custom_days').default(1), // 每 N 天一次
+  goal: integer('goal').default(1), // 每日目标次数
+  remindTime: text('remind_time'), // HH:MM
+  archived: integer('archived').default(0),
+  sortOrder: integer('sort_order').default(0),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
+})
+
+// 习惯打卡记录：每次打卡生成一条
+// date: YYYY-MM-DD（该打卡所属的日期）
+// count: 当次打卡次数（通常为 1）
+export const habitRecords = sqliteTable('habit_records', {
+  id: text('id').primaryKey(),
+  habitId: text('habit_id').notNull().references(() => habits.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(), // YYYY-MM-DD
+  count: integer('count').default(1),
+  note: text('note'),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
+})
+
 export type User = typeof users.$inferSelect
 export type Group = typeof groups.$inferSelect
 export type Subscription = typeof subscriptions.$inferSelect
@@ -154,3 +195,5 @@ export type Task = typeof tasks.$inferSelect
 export type Subtask = typeof subtasks.$inferSelect
 export type Tag = typeof tags.$inferSelect
 export type TaskTag = typeof taskTags.$inferSelect
+export type Habit = typeof habits.$inferSelect
+export type HabitRecord = typeof habitRecords.$inferSelect
