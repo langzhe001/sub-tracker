@@ -2,6 +2,11 @@ name = "sub-tracker"
 main = "api/index.ts"
 compatibility_date = "2024-01-01"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "sub-tracker"
+database_id = "7a9d2e04-72b0-48f6-9cfa-2e6f4855a008"
+
 [assets]
 directory = "./dist"
 binding = "ASSETS"
