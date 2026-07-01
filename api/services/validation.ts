@@ -1,6 +1,7 @@
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const RECURRING_DATE_REGEX = /^R:\d{2}-\d{2}$/;
+const RECURRING_ISO_DATE_REGEX = /^R:\d{4}-\d{2}-\d{2}$/;
 const MAX_TEXT_LENGTH = 200;
 const MAX_LONG_TEXT_LENGTH = 500;
 
@@ -19,19 +20,30 @@ function validateUUID(id: unknown): { valid: boolean; error?: string } {
 
 /**
  * 验证到期日期格式
- * 支持两种格式：
+ * 支持三种格式：
  * - 非周期模式：YYYY-MM-DD（如 2026-12-31）
  * - 周期模式：R:MM-DD（如 R:12-31，每年重复）
+ * - 周期模式（续期后）：R:YYYY-MM-DD（如 R:2027-12-31，保留年份）
  */
 function validateDate(date: unknown): { valid: boolean; error?: string } {
   if (!date || typeof date !== 'string') {
     return { valid: false, error: 'Invalid date format' };
   }
 
-  // 周期模式 R:MM-DD
+  // 周期模式
   if (date.startsWith('R:')) {
+    // R:YYYY-MM-DD（续期后保留年份）
+    if (RECURRING_ISO_DATE_REGEX.test(date)) {
+      const d = new Date(date.slice(2));
+      if (isNaN(d.getTime())) {
+        return { valid: false, error: 'Invalid recurring ISO date' };
+      }
+      return { valid: true };
+    }
+
+    // R:MM-DD
     if (!RECURRING_DATE_REGEX.test(date)) {
-      return { valid: false, error: 'Invalid recurring date format, use R:MM-DD' };
+      return { valid: false, error: 'Invalid recurring date format, use R:MM-DD or R:YYYY-MM-DD' };
     }
     const [monthStr, dayStr] = date.slice(2).split('-');
     const month = Number(monthStr);
@@ -39,7 +51,6 @@ function validateDate(date: unknown): { valid: boolean; error?: string } {
     if (month < 1 || month > 12) {
       return { valid: false, error: 'Invalid month (1-12)' };
     }
-    // 简单校验日范围（不区分大小月，允许 1-31）
     if (day < 1 || day > 31) {
       return { valid: false, error: 'Invalid day (1-31)' };
     }

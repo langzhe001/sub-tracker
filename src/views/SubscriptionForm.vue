@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { isRecurring, toRecurringValue, getRecurringMonthDay } from '@/lib/date'
+import { isRecurring, isRecurringWithYear, toRecurringValue, getRecurringMonthDay, RECURRING_PREFIX } from '@/lib/date'
 
 const router = useRouter()
 const route = useRoute()
@@ -68,10 +68,15 @@ onMounted(async () => {
       // 根据存储格式还原表单
       if (isRecurring(sub.expireDate)) {
         expireMode.value = 'recurring'
-        const md = getRecurringMonthDay(sub.expireDate) // MM-DD
-        // 用当前年份填充，便于 date input 显示
-        const year = new Date().getFullYear()
-        expireDateRecurring.value = `${year}-${md}`
+        if (isRecurringWithYear(sub.expireDate)) {
+          // R:YYYY-MM-DD（续期后保留年份）：使用存储的完整日期
+          expireDateRecurring.value = sub.expireDate.slice(RECURRING_PREFIX.length)
+        } else {
+          // R:MM-DD：用当前年份填充，便于 date input 显示
+          const md = getRecurringMonthDay(sub.expireDate) // MM-DD
+          const year = new Date().getFullYear()
+          expireDateRecurring.value = `${year}-${md}`
+        }
       } else {
         expireMode.value = 'once'
         expireDateOnce.value = sub.expireDate

@@ -22,7 +22,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
-import { getDaysUntilExpire, getExpireStatus, formatExpireDate, expireLabel } from '@/lib/date'
+import { getDaysUntilExpire, getExpireStatus, formatExpireDate, expireLabel, isRecurring } from '@/lib/date'
 
 const router = useRouter()
 const subscriptionStore = useSubscriptionStore()
@@ -318,6 +318,7 @@ async function exportBackup() {
               {{ testingId === sub.id ? '推送中...' : '测试推送' }}
             </Button>
             <Button
+              v-if="isRecurring(sub.expireDate)"
               variant="outline"
               size="sm"
               class="flex-1 h-8"

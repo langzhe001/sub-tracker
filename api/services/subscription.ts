@@ -12,6 +12,8 @@ import {
 import { getDaysUntilExpire, getExpireStatus, isRecurring, getRecurringMonthDay } from './date'
 import { createNotificationService } from './notification'
 
+const RECURRING_PREFIX = 'R:'
+
 type SubscriptionRow = {
   id: string
   name: string
@@ -46,7 +48,7 @@ function getExtendDays(renewalPeriod: string | null, customRenewalDays: string |
 }
 
 /**
- * 将日期对象转为 YYYY-MM-DD 存储值（保留年份，用于续期后的到期日）
+ * 将日期对象转为 YYYY-MM-DD 存储值（非周期模式，保留年份）
  */
 function dateToISOValue(d: Date): string {
   const yyyy = d.getFullYear()
@@ -56,12 +58,39 @@ function dateToISOValue(d: Date): string {
 }
 
 /**
- * 将周期模式 R:MM-DD 滚动到距今最近的未来日期
- * 用于 "以到期日延续" 模式：取下一次到期日作为基准
+ * 将日期对象转为 R:YYYY-MM-DD 存储值（周期模式续期后，保留年份）
  */
-function getRecurringNextDate(expireDate: string): Date {
+function dateToRecurringISOValue(d: Date): string {
+  return `${RECURRING_PREFIX}${dateToISOValue(d)}`
+}
+
+/**
+ * 判断周期模式是否包含年份（R:YYYY-MM-DD）
+ */
+function isRecurringWithYear(expireDate: string): boolean {
+  return isRecurring(expireDate) && expireDate.slice(RECURRING_PREFIX.length).length === 10
+}
+
+/**
+ * 获取周期模式的基准到期日（用于 "以到期日延续" 模式）
+ * - R:MM-DD：滚动到距今最近的未来日期
+ * - R:YYYY-MM-DD：使用显式日期（若已过期则用今天）
+ */
+function getRecurringBaseDate(expireDate: string): Date {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
+
+  // R:YYYY-MM-DD：使用显式日期
+  if (isRecurringWithYear(expireDate)) {
+    const parsed = new Date(expireDate.slice(RECURRING_PREFIX.length))
+    parsed.setHours(0, 0, 0, 0)
+    if (!isNaN(parsed.getTime()) && parsed.getTime() >= today.getTime()) {
+      return parsed
+    }
+    return today
+  }
+
+  // R:MM-DD：滚动到最近的未来日期
   const md = getRecurringMonthDay(expireDate)
   const [monthStr, dayStr] = md.split('-')
   const month = Number(monthStr) - 1
@@ -269,11 +298,13 @@ export class SubscriptionService {
   /**
    * 一键续期：按订阅的 extendMode 与 renewalPeriod 推后到期日期
    *
-   * 支持周期模式（R:MM-DD）和非周期模式（YYYY-MM-DD）。计算规则：
-   * - extendMode='expire'：基准日 = 当前到期日（周期模式滚动到未来；非周期若已过期则用今天）
+   * 支持周期模式（R:MM-DD / R:YYYY-MM-DD）和非周期模式（YYYY-MM-DD）。计算规则：
+   * - extendMode='expire'：基准日 = 当前到期日
+   *   - 周期 R:MM-DD：滚动到下一次到期日
+   *   - 周期 R:YYYY-MM-DD / 非周期：使用显式日期（已过期则用今天）
    * - extendMode='current'：基准日 = 今天
    * 延续天数：yearly=365，monthly=30，custom=customRenewalDays
-   * 计算后存储为 YYYY-MM-DD（保留年份），确保剩余天数计算正确
+   * 存储格式：周期模式 → R:YYYY-MM-DD（保留年份仍被识别为周期模式），非周期模式 → YYYY-MM-DD
    */
   async extend(id: string, userId: string): Promise<SubscriptionRow | undefined> {
     const sub = await this.getById(id, userId)
@@ -281,17 +312,17 @@ export class SubscriptionService {
 
     const extendMode = (sub.extendMode === 'current' ? 'current' : 'expire') as ExtendMode
     const days = getExtendDays(sub.renewalPeriod, sub.customRenewalDays)
+    const recurring = isRecurring(sub.expireDate)
 
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
     let baseDate: Date
     if (extendMode === 'current') {
-      // 以当前日期为基准
       baseDate = today
-    } else if (isRecurring(sub.expireDate)) {
-      // 周期模式：滚动到下一次到期日作为基准
-      baseDate = getRecurringNextDate(sub.expireDate)
+    } else if (recurring) {
+      // 周期模式（R:MM-DD 或 R:YYYY-MM-DD）
+      baseDate = getRecurringBaseDate(sub.expireDate)
     } else {
       // 非周期模式：以当前到期日为基准，若已过期则用今天
       const parsed = new Date(sub.expireDate)
@@ -300,8 +331,8 @@ export class SubscriptionService {
     }
 
     const newDate = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000)
-    // 保留年份，存为 YYYY-MM-DD，避免 getDaysUntilExpire 再次滚动导致续期失效
-    const newExpireDate = dateToISOValue(newDate)
+    // 周期模式存为 R:YYYY-MM-DD（保留年份 + R: 前缀），非周期存为 YYYY-MM-DD
+    const newExpireDate = recurring ? dateToRecurringISOValue(newDate) : dateToISOValue(newDate)
 
     return this.update(id, userId, { expireDate: newExpireDate })
   }
